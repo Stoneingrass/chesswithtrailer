@@ -26,6 +26,10 @@ export type NetworkMessage =
       snapshot: GameSnapshot;
     }
   | {
+      type: 'ERROR';
+      message: string;
+    }
+  | {
       type: 'PING';
     }
   | {

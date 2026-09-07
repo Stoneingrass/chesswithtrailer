@@ -20,6 +20,7 @@ export class NetworkManager {
   private role: PlayerRole | null = null;
   private myColor: Color | null = null;
   private roomCode: string | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
 
   private listeners: Partial<NetworkEvents> = {};
 
@@ -70,6 +71,13 @@ export class NetworkManager {
       });
 
       this.peer.on('connection', (c) => {
+        if (this.isConnected()) {
+          c.on('open', () => {
+            c.send({ type: 'ERROR', message: 'Комната заполнена (уже играют 2 игрока)' });
+            setTimeout(() => c.close(), 300);
+          });
+          return;
+        }
         this.conn = c;
         this.setupConnection(getInitialState);
       });
@@ -108,6 +116,7 @@ export class NetworkManager {
   }
 
   disconnect(): void {
+    this.stopPingHeartbeat();
     if (this.conn) {
       try {
         this.conn.close();
@@ -147,12 +156,14 @@ export class NetworkManager {
     });
 
     this.conn.on('close', () => {
+      this.stopPingHeartbeat();
       this.updateStatus('waiting_for_peer', 'Соперник отключился. Ожидание...');
       this.listeners.partnerDisconnected?.();
     });
 
     this.conn.on('error', (err) => {
       console.error('Connection error:', err);
+      this.stopPingHeartbeat();
       this.updateStatus('error', 'Ошибка соединения с соперником');
     });
   }
@@ -175,23 +186,53 @@ export class NetworkManager {
     });
 
     this.conn.on('close', () => {
+      this.stopPingHeartbeat();
       this.updateStatus('disconnected', 'Соединение с хостом разорвано');
       this.listeners.partnerDisconnected?.();
     });
 
     this.conn.on('error', (err) => {
       console.error('Guest connection error:', err);
+      this.stopPingHeartbeat();
       this.updateStatus('error', 'Не удалось связаться с комнатой');
       reject(err);
     });
   }
 
   private handleData(msg: NetworkMessage): void {
+    if (msg.type === 'PING') {
+      this.sendMessage({ type: 'PONG' });
+      return;
+    }
+    if (msg.type === 'PONG') {
+      return;
+    }
     this.listeners.message?.(msg);
+  }
+
+  private startPingHeartbeat(): void {
+    this.stopPingHeartbeat();
+    this.pingInterval = setInterval(() => {
+      if (this.isConnected()) {
+        this.sendMessage({ type: 'PING' });
+      }
+    }, 5000);
+  }
+
+  private stopPingHeartbeat(): void {
+    if (this.pingInterval !== null) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 
   private updateStatus(status: ConnectionStatus, message?: string): void {
     this.status = status;
+    if (status === 'connected') {
+      this.startPingHeartbeat();
+    } else if (status === 'disconnected' || status === 'error') {
+      this.stopPingHeartbeat();
+    }
     this.listeners.statusChange?.(status, message);
   }
 }

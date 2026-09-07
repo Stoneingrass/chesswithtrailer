@@ -4,6 +4,7 @@ import { createPieceImg } from './pieceAssets';
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
+const SAVE_KEY = 'omnichess-saved-game-state';
 
 const TRAILER_OPTION_LABELS: Record<keyof TrailerOptions, string> = {
   allowFollowerCaptureWithoutLeadingCapture: 'Взятие "прицепом"',
@@ -65,7 +66,7 @@ export class ChessBoardView {
     this.container.innerHTML = `
       <div class="game-layout">
         <header class="game-header">
-          <h1>OmniChess</h1>
+          <h1>Chess with trailer</h1>
           <p class="subtitle game-subtitle">Локальный режим · ${this.game.getRuleSetName()}</p>
           <div class="mode-tabs">
             <button type="button" class="mode-tab active" data-mode="local">Локальная игра</button>
@@ -127,11 +128,15 @@ export class ChessBoardView {
     this.timeline = [this.game.getSnapshot()];
     this.timelineIndex = 0;
 
+    // Restore saved game state if present in localStorage
+    this.loadPersistedState();
+
     this.setupModeTabs();
     this.setupNetworkEvents();
 
     this.container.querySelector('[data-action="reset"]')!.addEventListener('click', () => {
       this.game.reset();
+      this.clearPersistedState();
       if (this.mode === 'online' && this.net.isConnected()) {
         this.net.sendMessage({ type: 'RESET_GAME', snapshot: this.game.getSnapshot() });
       }
@@ -167,6 +172,7 @@ export class ChessBoardView {
           this.lastMoveSquares.add(f.from);
           this.lastMoveSquares.add(f.to);
         }
+        this.savePersistedState();
       }
       if (event.type === 'reset') {
         this.lastMoveSquares.clear();
@@ -188,6 +194,58 @@ export class ChessBoardView {
     } else {
       this.render();
     }
+  }
+
+  private savePersistedState(): void {
+    try {
+      const data = {
+        snapshot: this.game.getSnapshot(),
+        timeline: this.timeline,
+        timelineIndex: this.timelineIndex,
+        options: this.game.getTrailerOptions(),
+        lastMoveSquares: Array.from(this.lastMoveSquares),
+      };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.error('Failed to save persisted state:', e);
+    }
+  }
+
+  private loadPersistedState(): boolean {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (data && data.snapshot && Array.isArray(data.timeline) && data.timeline.length > 0) {
+        if (data.options) {
+          this.game.setTrailerOptions(data.options);
+        }
+        this.timeline = data.timeline;
+        this.timelineIndex = Math.max(
+          0,
+          Math.min(data.timelineIndex ?? data.timeline.length - 1, data.timeline.length - 1),
+        );
+        this.isBrowsingHistory = true;
+        try {
+          this.game.loadSnapshot(this.timeline[this.timelineIndex]);
+        } finally {
+          this.isBrowsingHistory = false;
+        }
+        if (Array.isArray(data.lastMoveSquares)) {
+          this.lastMoveSquares = new Set(data.lastMoveSquares);
+        }
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to load persisted state:', e);
+    }
+    return false;
+  }
+
+  private clearPersistedState(): void {
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {}
   }
 
   private setupModeTabs(): void {
@@ -236,12 +294,26 @@ export class ChessBoardView {
 
     this.net.on('message', (msg) => {
       if (msg.type === 'INIT_GAME') {
-        this.game.loadSnapshot(msg.snapshot);
+        this.isBrowsingHistory = true;
+        try {
+          this.game.loadSnapshot(msg.snapshot);
+        } finally {
+          this.isBrowsingHistory = false;
+        }
         this.game.setTrailerOptions(msg.options);
+        this.timeline = [msg.snapshot];
+        this.timelineIndex = 0;
         this.refreshOptionsPanel();
         this.render();
       } else if (msg.type === 'MOVE') {
-        this.game.loadSnapshot(msg.snapshot);
+        this.isBrowsingHistory = true;
+        try {
+          this.game.loadSnapshot(msg.snapshot);
+        } finally {
+          this.isBrowsingHistory = false;
+        }
+        this.timeline.push(msg.snapshot);
+        this.timelineIndex = this.timeline.length - 1;
         this.lastMoveSquares = new Set([msg.move.from, msg.move.to]);
         for (const f of msg.move.followers ?? []) {
           this.lastMoveSquares.add(f.from);
@@ -254,9 +326,19 @@ export class ChessBoardView {
         this.refreshLegalTargets();
         this.render();
       } else if (msg.type === 'RESET_GAME') {
-        this.game.loadSnapshot(msg.snapshot);
+        this.isBrowsingHistory = true;
+        try {
+          this.game.loadSnapshot(msg.snapshot);
+        } finally {
+          this.isBrowsingHistory = false;
+        }
+        this.timeline = [msg.snapshot];
+        this.timelineIndex = 0;
         this.clearSelection();
         this.render();
+      } else if (msg.type === 'ERROR') {
+        this.netErrorMessage = msg.message;
+        this.renderNetSlot();
       }
     });
   }
@@ -289,11 +371,11 @@ export class ChessBoardView {
       return;
     }
 
-    const status = this.net.getStatus();
+    const netStatus = this.net.getStatus();
     const roomCode = this.net.getRoomCode();
     const myColor = this.net.getMyColor();
 
-    if (status === 'disconnected') {
+    if (netStatus === 'disconnected') {
       this.netSlotEl.innerHTML = `
         <div class="net-panel">
           <h2>Игра по сети</h2>
@@ -320,7 +402,7 @@ export class ChessBoardView {
       return;
     }
 
-    if (status === 'waiting_for_peer') {
+    if (netStatus === 'waiting_for_peer') {
       const shareUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
       this.netSlotEl.innerHTML = `
         <div class="net-panel">
@@ -328,7 +410,7 @@ export class ChessBoardView {
           <div class="net-status-box waiting">
             <p>Код комнаты: <strong class="room-code-display">${roomCode}</strong></p>
             <button type="button" class="btn btn-secondary btn-sm btn-block" data-net-action="copy-link">📋 Скопировать ссылку</button>
-            <p class="status-msg">Ожидание подключения соперника...</p>
+            <p class="status-msg">Ожидание подключения второго игрока...</p>
             <button type="button" class="btn btn-link btn-sm" data-net-action="leave">Отмена</button>
           </div>
         </div>
@@ -348,7 +430,7 @@ export class ChessBoardView {
       return;
     }
 
-    if (status === 'connecting') {
+    if (netStatus === 'connecting') {
       this.netSlotEl.innerHTML = `
         <div class="net-panel">
           <h2>Игра по сети</h2>
@@ -360,7 +442,7 @@ export class ChessBoardView {
       return;
     }
 
-    if (status === 'connected') {
+    if (netStatus === 'connected') {
       const colorText = myColor === 'w' ? 'Белые (♔)' : 'Чёрные (♚)';
       this.netSlotEl.innerHTML = `
         <div class="net-panel">
@@ -381,7 +463,7 @@ export class ChessBoardView {
       return;
     }
 
-    if (status === 'error') {
+    if (netStatus === 'error') {
       this.netSlotEl.innerHTML = `
         <div class="net-panel">
           <h2>Игра по сети</h2>
@@ -433,6 +515,7 @@ export class ChessBoardView {
         if (this.mode === 'online' && this.net.isConnected()) {
           this.net.sendMessage({ type: 'CHANGE_OPTIONS', options: change });
         }
+        this.savePersistedState();
         this.refreshOptionsPanel();
         this.refreshLegalTargets();
         this.render();
@@ -740,8 +823,11 @@ export class ChessBoardView {
     this.legalTargets.clear();
     if (!result.ok) {
       console.warn(result.reason);
-    } else if (this.mode === 'online' && this.net.isConnected()) {
-      this.net.sendMessage({ type: 'MOVE', move: result.move, snapshot: result.snapshot });
+    } else {
+      this.savePersistedState();
+      if (this.mode === 'online' && this.net.isConnected()) {
+        this.net.sendMessage({ type: 'MOVE', move: result.move, snapshot: result.snapshot });
+      }
     }
     this.render();
     if (result.ok) this.animateGroupMove(result.move);

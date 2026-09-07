@@ -327,18 +327,22 @@ body {
 .join-form {
   display: flex;
   gap: 0.35rem;
+  align-items: center;
 }
 
 .room-code-input {
-  flex: 1;
+  width: 100px;
+  flex: 0 0 100px;
   background: var(--bg);
   border: 1px solid var(--surface-alt);
   border-radius: var(--radius);
   color: var(--text);
-  padding: 0.4rem 0.5rem;
+  padding: 0.35rem 0.4rem;
   font-size: 0.82rem;
   text-transform: uppercase;
   font-family: monospace;
+  text-align: center;
+  letter-spacing: 0.08em;
 }
 
 .room-code-input:focus {
