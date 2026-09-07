@@ -1,4 +1,5 @@
 import type { Color, GameController, GameResult, GameSnapshot, Move, PieceType, Square, TrailerOptions } from '../core';
+import { NetworkManager } from '../net';
 import { createPieceImg } from './pieceAssets';
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
@@ -41,6 +42,10 @@ export class ChessBoardView {
   private timelineIndex = 0;
   private isBrowsingHistory = false;
 
+  private mode: 'local' | 'online' = 'local';
+  private net = new NetworkManager();
+  private netErrorMessage: string | null = null;
+
   private boardEl!: HTMLElement;
   private statusEl!: HTMLElement;
   private historyEl!: HTMLElement;
@@ -48,6 +53,8 @@ export class ChessBoardView {
   private hintEl!: HTMLElement;
   private optionsSlotEl!: HTMLElement;
   private timelineStatusEl!: HTMLElement;
+  private netSlotEl!: HTMLElement;
+  private headerSubEl!: HTMLElement;
 
   constructor(
     private container: HTMLElement,
@@ -59,10 +66,15 @@ export class ChessBoardView {
       <div class="game-layout">
         <header class="game-header">
           <h1>OmniChess</h1>
-          <p class="subtitle">Локальный режим · ${this.game.getRuleSetName()}</p>
+          <p class="subtitle game-subtitle">Локальный режим · ${this.game.getRuleSetName()}</p>
+          <div class="mode-tabs">
+            <button type="button" class="mode-tab active" data-mode="local">Локальная игра</button>
+            <button type="button" class="mode-tab" data-mode="online">Игра по сети</button>
+          </div>
         </header>
         <div class="game-body">
           <aside class="panel-left">
+            <div class="net-room-slot"></div>
             <div class="trailer-options-slot">${this.renderOptionsPanel()}</div>
           </aside>
           <main class="board-panel">
@@ -109,11 +121,20 @@ export class ChessBoardView {
     this.hintEl = this.container.querySelector('.selection-hint')!;
     this.optionsSlotEl = this.container.querySelector('.trailer-options-slot')!;
     this.timelineStatusEl = this.container.querySelector('.timeline-status')!;
+    this.netSlotEl = this.container.querySelector('.net-room-slot')!;
+    this.headerSubEl = this.container.querySelector('.game-subtitle')!;
+
     this.timeline = [this.game.getSnapshot()];
     this.timelineIndex = 0;
 
+    this.setupModeTabs();
+    this.setupNetworkEvents();
+
     this.container.querySelector('[data-action="reset"]')!.addEventListener('click', () => {
       this.game.reset();
+      if (this.mode === 'online' && this.net.isConnected()) {
+        this.net.sendMessage({ type: 'RESET_GAME', snapshot: this.game.getSnapshot() });
+      }
     });
 
     this.container.querySelector('[data-action="flip"]')!.addEventListener('click', () => {
@@ -158,7 +179,224 @@ export class ChessBoardView {
       this.render();
     });
 
+    // Auto-join room if room query parameter is present in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomParam = urlParams.get('room');
+    if (roomParam) {
+      this.switchMode('online');
+      void this.joinRoom(roomParam);
+    } else {
+      this.render();
+    }
+  }
+
+  private setupModeTabs(): void {
+    this.container.querySelectorAll<HTMLButtonElement>('.mode-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const mode = tab.dataset.mode as 'local' | 'online';
+        this.switchMode(mode);
+      });
+    });
+  }
+
+  private switchMode(newMode: 'local' | 'online'): void {
+    if (this.mode === newMode) return;
+    this.mode = newMode;
+
+    this.container.querySelectorAll<HTMLButtonElement>('.mode-tab').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.mode === newMode);
+    });
+
+    if (newMode === 'local') {
+      this.net.disconnect();
+      this.headerSubEl.textContent = `Локальный режим · ${this.game.getRuleSetName()}`;
+    } else {
+      this.headerSubEl.textContent = `Игра по сети · ${this.game.getRuleSetName()}`;
+    }
+
+    this.clearSelection();
     this.render();
+  }
+
+  private setupNetworkEvents(): void {
+    this.net.on('statusChange', (_status, msg) => {
+      this.netErrorMessage = msg ?? null;
+      this.renderNetSlot();
+      this.renderHint();
+    });
+
+    this.net.on('partnerConnected', (myColor) => {
+      this.flipped = myColor === 'b';
+      this.render();
+    });
+
+    this.net.on('partnerDisconnected', () => {
+      this.renderHint();
+    });
+
+    this.net.on('message', (msg) => {
+      if (msg.type === 'INIT_GAME') {
+        this.game.loadSnapshot(msg.snapshot);
+        this.game.setTrailerOptions(msg.options);
+        this.refreshOptionsPanel();
+        this.render();
+      } else if (msg.type === 'MOVE') {
+        this.game.loadSnapshot(msg.snapshot);
+        this.lastMoveSquares = new Set([msg.move.from, msg.move.to]);
+        for (const f of msg.move.followers ?? []) {
+          this.lastMoveSquares.add(f.from);
+          this.lastMoveSquares.add(f.to);
+        }
+        this.render();
+      } else if (msg.type === 'CHANGE_OPTIONS') {
+        this.game.setTrailerOptions(msg.options);
+        this.refreshOptionsPanel();
+        this.refreshLegalTargets();
+        this.render();
+      } else if (msg.type === 'RESET_GAME') {
+        this.game.loadSnapshot(msg.snapshot);
+        this.clearSelection();
+        this.render();
+      }
+    });
+  }
+
+  private async createRoom(): Promise<void> {
+    try {
+      await this.net.createRoom(() => ({
+        snapshot: this.game.getSnapshot(),
+        options: this.game.getTrailerOptions() ?? ({} as TrailerOptions),
+      }));
+      this.renderNetSlot();
+    } catch (err) {
+      console.error('Failed to create room:', err);
+    }
+  }
+
+  private async joinRoom(code: string): Promise<void> {
+    if (!code) return;
+    try {
+      await this.net.joinRoom(code);
+      this.renderNetSlot();
+    } catch (err) {
+      console.error('Failed to join room:', err);
+    }
+  }
+
+  private renderNetSlot(): void {
+    if (this.mode !== 'online') {
+      this.netSlotEl.innerHTML = '';
+      return;
+    }
+
+    const status = this.net.getStatus();
+    const roomCode = this.net.getRoomCode();
+    const myColor = this.net.getMyColor();
+
+    if (status === 'disconnected') {
+      this.netSlotEl.innerHTML = `
+        <div class="net-panel">
+          <h2>Игра по сети</h2>
+          <button type="button" class="btn btn-primary btn-block" data-net-action="create">⚡ Создать комнату</button>
+          <div class="net-divider">или войти по коду</div>
+          <form class="join-form">
+            <input type="text" class="room-code-input" placeholder="Код (напр. K9X2P4)" maxLength="6" />
+            <button type="submit" class="btn btn-secondary">Войти</button>
+          </form>
+        </div>
+      `;
+
+      this.netSlotEl.querySelector('[data-net-action="create"]')?.addEventListener('click', () => {
+        void this.createRoom();
+      });
+
+      this.netSlotEl.querySelector('.join-form')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = this.netSlotEl.querySelector<HTMLInputElement>('.room-code-input');
+        if (input && input.value) {
+          void this.joinRoom(input.value);
+        }
+      });
+      return;
+    }
+
+    if (status === 'waiting_for_peer') {
+      const shareUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+      this.netSlotEl.innerHTML = `
+        <div class="net-panel">
+          <h2>Игра по сети</h2>
+          <div class="net-status-box waiting">
+            <p>Код комнаты: <strong class="room-code-display">${roomCode}</strong></p>
+            <button type="button" class="btn btn-secondary btn-sm btn-block" data-net-action="copy-link">📋 Скопировать ссылку</button>
+            <p class="status-msg">Ожидание подключения соперника...</p>
+            <button type="button" class="btn btn-link btn-sm" data-net-action="leave">Отмена</button>
+          </div>
+        </div>
+      `;
+
+      this.netSlotEl.querySelector('[data-net-action="copy-link"]')?.addEventListener('click', () => {
+        void navigator.clipboard.writeText(shareUrl).then(() => {
+          const btn = this.netSlotEl.querySelector<HTMLButtonElement>('[data-net-action="copy-link"]');
+          if (btn) btn.textContent = '✓ Ссылка скопирована!';
+        });
+      });
+
+      this.netSlotEl.querySelector('[data-net-action="leave"]')?.addEventListener('click', () => {
+        this.net.disconnect();
+        this.renderNetSlot();
+      });
+      return;
+    }
+
+    if (status === 'connecting') {
+      this.netSlotEl.innerHTML = `
+        <div class="net-panel">
+          <h2>Игра по сети</h2>
+          <div class="net-status-box connecting">
+            <p class="status-msg">Подключение к комнате <strong>${roomCode}</strong>...</p>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (status === 'connected') {
+      const colorText = myColor === 'w' ? 'Белые (♔)' : 'Чёрные (♚)';
+      this.netSlotEl.innerHTML = `
+        <div class="net-panel">
+          <h2>Игра по сети</h2>
+          <div class="net-status-box connected">
+            <div class="online-badge">● В сети</div>
+            <p>Комната: <strong>${roomCode}</strong></p>
+            <p>Ваш цвет: <strong>${colorText}</strong></p>
+            <button type="button" class="btn btn-secondary btn-sm btn-block" data-net-action="leave">Покинуть комнату</button>
+          </div>
+        </div>
+      `;
+
+      this.netSlotEl.querySelector('[data-net-action="leave"]')?.addEventListener('click', () => {
+        this.net.disconnect();
+        this.renderNetSlot();
+      });
+      return;
+    }
+
+    if (status === 'error') {
+      this.netSlotEl.innerHTML = `
+        <div class="net-panel">
+          <h2>Игра по сети</h2>
+          <div class="net-status-box error">
+            <p class="error-msg">${this.netErrorMessage || 'Ошибка подключения'}</p>
+            <button type="button" class="btn btn-secondary btn-sm" data-net-action="leave">Сбросить</button>
+          </div>
+        </div>
+      `;
+
+      this.netSlotEl.querySelector('[data-net-action="leave"]')?.addEventListener('click', () => {
+        this.net.disconnect();
+        this.renderNetSlot();
+      });
+    }
   }
 
   private renderOptionsPanel(): string {
@@ -192,6 +430,9 @@ export class ChessBoardView {
           change.allowRecursiveGroup = false;
         }
         this.game.setTrailerOptions(change);
+        if (this.mode === 'online' && this.net.isConnected()) {
+          this.net.sendMessage({ type: 'CHANGE_OPTIONS', options: change });
+        }
         this.refreshOptionsPanel();
         this.refreshLegalTargets();
         this.render();
@@ -200,6 +441,7 @@ export class ChessBoardView {
   }
 
   private render(): void {
+    this.renderNetSlot();
     this.renderBoard();
     this.renderStatus();
     this.renderHistory();
@@ -260,6 +502,17 @@ export class ChessBoardView {
   }
 
   private renderHint(): void {
+    if (this.mode === 'online') {
+      if (!this.net.isConnected()) {
+        this.hintEl.textContent = 'Ожидание подключения соперника по сети...';
+        return;
+      }
+      if (this.game.getTurn() !== this.net.getMyColor()) {
+        this.hintEl.textContent = 'Ожидание хода соперника...';
+        return;
+      }
+    }
+
     if (!this.leadingSquare) {
       this.hintEl.textContent = 'Выберите ведущую фигуру. Затем — необязательно — ведомую (защитника).';
       return;
@@ -362,8 +615,15 @@ export class ChessBoardView {
     }
   }
 
+  private isMyTurn(): boolean {
+    if (this.mode === 'local') return true;
+    if (!this.net.isConnected()) return false;
+    return this.game.getTurn() === this.net.getMyColor();
+  }
+
   private onSquareClick(square: Square): void {
     if (this.timelineIndex !== this.timeline.length - 1) return;
+    if (!this.isMyTurn()) return;
     const result = this.game.getResult();
     if (result.status !== 'ongoing') return;
 
@@ -480,6 +740,8 @@ export class ChessBoardView {
     this.legalTargets.clear();
     if (!result.ok) {
       console.warn(result.reason);
+    } else if (this.mode === 'online' && this.net.isConnected()) {
+      this.net.sendMessage({ type: 'MOVE', move: result.move, snapshot: result.snapshot });
     }
     this.render();
     if (result.ok) this.animateGroupMove(result.move);
@@ -585,6 +847,10 @@ export class ChessBoardView {
       event.preventDefault();
       return;
     }
+    if (!this.isMyTurn()) {
+      event.preventDefault();
+      return;
+    }
     const piece = this.game.getPiece(square);
     if (!piece || piece.color !== this.game.getTurn()) {
       event.preventDefault();
@@ -601,7 +867,7 @@ export class ChessBoardView {
 
   private onDragOver(event: DragEvent, square: Square): void {
     const from = this.draggedSquare;
-    if (!from || from === square) return;
+    if (!from || from === square || !this.isMyTurn()) return;
     const context =
       this.leadingSquare === from && this.followerSquares.size > 0
         ? { followers: [...this.followerSquares] }
@@ -616,6 +882,7 @@ export class ChessBoardView {
 
   private onDrop(event: DragEvent, to: Square): void {
     event.preventDefault();
+    if (!this.isMyTurn()) return;
     const from = this.draggedSquare;
     this.clearDragState();
     if (!from || from === to) return;
