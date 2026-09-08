@@ -109,6 +109,13 @@ export class GameController {
     return [];
   }
 
+  getCastlingAssociatedSquares(square: Square): Square[] {
+    if ('getCastlingAssociatedSquares' in this.rules && typeof (this.rules as any).getCastlingAssociatedSquares === 'function') {
+      return (this.rules as TrailerChessRules).getCastlingAssociatedSquares(square);
+    }
+    return [];
+  }
+
   getTrailerOptions(): TrailerOptions | null {
     if ('getTrailerOptions' in this.rules) {
       return (this.rules as TrailerChessRules).getTrailerOptions();

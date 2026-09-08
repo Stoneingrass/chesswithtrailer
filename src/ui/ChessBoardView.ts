@@ -705,21 +705,26 @@ export class ChessBoardView {
   private getSelectableFollowers(): Square[] {
     if (!this.leadingSquare) return [];
     const opts = this.game.getTrailerOptions();
-    const direct = this.game.getDirectProtectors(this.leadingSquare);
-    if (!opts?.allowRecursiveGroup || !opts?.allowMultiFollower) {
-      return direct.filter((p) => !opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k');
-    }
+    const associated = this.game.getCastlingAssociatedSquares(this.leadingSquare);
+    const rootSquares = [this.leadingSquare, ...associated];
 
-    const selectable = new Set<Square>();
-    for (const p of direct) {
-      if (!opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k') {
-        selectable.add(p);
+    const direct = new Set<Square>();
+    for (const root of rootSquares) {
+      for (const p of this.game.getDirectProtectors(root)) {
+        if (!opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k') {
+          direct.add(p);
+        }
       }
     }
 
+    if (!opts?.allowRecursiveGroup || !opts?.allowMultiFollower) {
+      return [...direct];
+    }
+
+    const selectable = new Set<Square>(direct);
     for (const follower of this.followerSquares) {
       for (const p of this.game.getDirectProtectors(follower)) {
-        if (p !== this.leadingSquare && (!opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k')) {
+        if (!rootSquares.includes(p) && (!opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k')) {
           selectable.add(p);
         }
       }
@@ -766,8 +771,11 @@ export class ChessBoardView {
     const opts = this.game.getTrailerOptions();
     if (!opts) return depths;
 
-    const queue: Array<{ square: Square; depth: number }> = [{ square: leadingSq, depth: 0 }];
-    const visited = new Set<Square>([leadingSq]);
+    const associated = this.game.getCastlingAssociatedSquares(leadingSq);
+    const rootSquares = [leadingSq, ...associated];
+
+    const queue: Array<{ square: Square; depth: number }> = rootSquares.map((sq) => ({ square: sq, depth: 0 }));
+    const visited = new Set<Square>(rootSquares);
 
     while (queue.length > 0) {
       const { square: curr, depth: currDepth } = queue.shift()!;
@@ -793,7 +801,8 @@ export class ChessBoardView {
   private pruneDisconnectedFollowers(): void {
     if (!this.leadingSquare || this.followerSquares.size === 0) return;
 
-    const reachable = new Set<Square>([this.leadingSquare]);
+    const associated = this.game.getCastlingAssociatedSquares(this.leadingSquare);
+    const reachable = new Set<Square>([this.leadingSquare, ...associated]);
     let changed = true;
 
     while (changed) {
@@ -1224,6 +1233,17 @@ export class ChessBoardView {
     const shifts = [{ from: move.from, to: move.to }, ...(move.followers ?? [])]
       .filter((shift) => !('removed' in shift && shift.removed))
       .map((s) => ({ from: s.from, to: s.to }));
+
+    if (move.isCastle) {
+      const rank = move.from[1];
+      const isKingside = move.to[0] === 'g' || move.from === `h${rank}`;
+      const rookFrom = (isKingside ? `h${rank}` : `a${rank}`) as Square;
+      const rookTo = (isKingside ? `f${rank}` : `d${rank}`) as Square;
+      if (!shifts.some((s) => s.from === rookFrom)) {
+        shifts.push({ from: rookFrom, to: rookTo });
+      }
+    }
+
     this.animateShifts(shifts, duration);
   }
 
