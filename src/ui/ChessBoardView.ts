@@ -872,7 +872,8 @@ export class ChessBoardView {
           if (d === 1) cell.classList.add('chain-depth-1');
           else if (d === 2) cell.classList.add('chain-depth-2');
           else if (d === 3) cell.classList.add('chain-depth-3');
-          else cell.classList.add('chain-depth-4');
+          else if (d === 4) cell.classList.add('chain-depth-4');
+          else cell.classList.add('chain-depth-5');
         }
 
         const piece = this.game.getPiece(square);
