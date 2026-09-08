@@ -582,7 +582,9 @@ export class TrailerChessRules extends StandardChessRules {
     const trailer = followers
       .map((f) => {
         const promoStr = f.piece.type === 'p' && f.promotion ? `=${f.promotion.toUpperCase()}` : '';
-        return `${this.pieceName(f.piece.type)}${f.from}${f.to ? `→${f.to}` : '×'}${promoStr}`;
+        const sep = f.to ? '-' : 'x';
+        const target = f.to ?? '';
+        return `${this.pieceName(f.piece.type)}${f.from}${sep}${target}${promoStr}`;
       })
       .join(', ');
     return `${san} + ${trailer}`;
@@ -616,6 +618,6 @@ export class TrailerChessRules extends StandardChessRules {
   }
 
   private pieceName(type: PieceType): string {
-    return ({ p: 'П', n: 'К', b: 'С', r: 'Л', q: 'Ф', k: 'Кр' } as const)[type];
+    return ({ p: '', n: 'N', b: 'B', r: 'R', q: 'Q', k: 'K' } as const)[type];
   }
 }

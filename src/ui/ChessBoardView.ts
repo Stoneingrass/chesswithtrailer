@@ -54,7 +54,6 @@ export class ChessBoardView {
   private promotionEl!: HTMLElement;
   private hintEl!: HTMLElement;
   private optionsSlotEl!: HTMLElement;
-  private timelineStatusEl!: HTMLElement;
   private netSlotEl!: HTMLElement;
   private headerSubEl!: HTMLElement;
 
@@ -67,7 +66,10 @@ export class ChessBoardView {
     this.container.innerHTML = `
       <div class="game-layout">
         <header class="game-header">
-          <h1>Chess with trailer</h1>
+          <div class="header-title-row">
+            <h1>Chess with trailer</h1>
+            <button type="button" class="btn btn-secondary help-trigger-btn" aria-label="Справка и правила">Правила</button>
+          </div>
           <p class="subtitle game-subtitle">Локальный режим · ${this.game.getRuleSetName()}</p>
           <div class="mode-tabs">
             <button type="button" class="mode-tab active" data-mode="local">Локальная игра</button>
@@ -107,14 +109,57 @@ export class ChessBoardView {
               </div>
               <div class="timeline-status"></div>
               <div class="button-group">
-                <button type="button" class="btn btn-secondary" data-action="flip">↕ Перевернуть</button>
-                <button type="button" class="btn btn-primary" data-action="reset">↺ Новая партия</button>
+                <button type="button" class="btn btn-secondary" data-action="flip">Перевернуть</button>
+                <button type="button" class="btn btn-primary" data-action="reset">Новая партия</button>
               </div>
             </div>
           </aside>
         </div>
+        <div class="help-modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Правила игры">
+          <div class="help-modal">
+            <div class="help-modal-header">
+              <h2>Правила игры «Chess with trailer»</h2>
+              <button type="button" class="help-close-btn" aria-label="Закрыть">&times;</button>
+            </div>
+            <div class="help-modal-body">
+              <section class="help-section">
+                <h3>♟️ Основная механика «Прицепа»</h3>
+                <p>Вы делаете ход одной <strong>ведущей фигурой</strong>. Любые ваши фигуры, непосредственно защищающие ведущую (или связанные с ней цепочкой защиты), могут быть выбраны в качестве <strong>ведомых («прицепа»)</strong>.</p>
+                <p>При совершении хода ведущей фигурой все выбранные ведомые фигуры автоматически смещаются на тот же вектор <code>(Δx, Δy)</code>.</p>
+              </section>
+              <section class="help-section">
+                <h3>Доступные опции прицепа</h3>
+                <ul class="help-options-list">
+                  <li><strong>Взятие «прицепом»</strong> — ведомые фигуры могут совершать взятие фигур противника при своём смещении.</li>
+                  <li><strong>Взятие нескольких фигур</strong> — группа ведомых фигур может брать сразу несколько фигур соперника за один ход.</li>
+                  <li><strong>«Прицеп» может сбивать свои фигуры</strong> — ведомая фигура может убрать фигуру своего цвета, стоящую на её новой клетке.</li>
+                  <li><strong>«Прицеп» из 2+ фигур</strong> — можно выбирать более одной ведомой фигуры за ход.</li>
+                  <li><strong>Рекурсивное присоединение к «прицепу»</strong> — защитники ведомых фигур также могут подключаться к прицепу цепочкой.</li>
+                  <li><strong>Перепрыгивание «прицепом»</strong> — ведомые фигуры могут перепрыгивать через занятые клетки на своём пути.</li>
+                  <li><strong>«Прицеп» может вылететь за доску</strong> — при выходе за пределы 8×8 ведомая фигура снимается с доски вместо отмены хода.</li>
+                  <li><strong>Король не может быть «прицепом»</strong> — Король используется только как ведущая фигура.</li>
+                </ul>
+              </section>
+            </div>
+          </div>
+        </div>
       </div>
     `;
+
+    const helpOverlay = this.container.querySelector<HTMLElement>('.help-modal-overlay')!;
+    const helpBtn = this.container.querySelector<HTMLButtonElement>('.help-trigger-btn')!;
+    const helpCloseBtn = this.container.querySelector<HTMLButtonElement>('.help-close-btn')!;
+
+    helpBtn.addEventListener('click', () => helpOverlay.classList.remove('hidden'));
+    helpCloseBtn.addEventListener('click', () => helpOverlay.classList.add('hidden'));
+    helpOverlay.addEventListener('click', (e) => {
+      if (e.target === helpOverlay) helpOverlay.classList.add('hidden');
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !helpOverlay.classList.contains('hidden')) {
+        helpOverlay.classList.add('hidden');
+      }
+    });
 
     this.boardEl = this.container.querySelector('.board')!;
     this.statusEl = this.container.querySelector('.game-status')!;
@@ -122,7 +167,6 @@ export class ChessBoardView {
     this.promotionEl = this.container.querySelector('.promotion-dialog')!;
     this.hintEl = this.container.querySelector('.selection-hint')!;
     this.optionsSlotEl = this.container.querySelector('.trailer-options-slot')!;
-    this.timelineStatusEl = this.container.querySelector('.timeline-status')!;
     this.netSlotEl = this.container.querySelector('.net-room-slot')!;
     this.headerSubEl = this.container.querySelector('.game-subtitle')!;
 
@@ -147,6 +191,40 @@ export class ChessBoardView {
       this.flipped = !this.flipped;
       this.render();
     });
+    this.historyEl.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest<HTMLElement>('.move-san');
+      if (!target) return;
+      const snapIdx = parseInt(target.dataset.snapshot ?? '', 10);
+      if (!isNaN(snapIdx)) {
+        this.showTimeline(snapIdx);
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      const target = e.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target?.isContentEditable) {
+        return;
+      }
+      if (!helpOverlay.classList.contains('hidden') || !this.promotionEl.classList.contains('hidden')) {
+        return;
+      }
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        this.showTimeline(this.timelineIndex - 1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.showTimeline(this.timelineIndex + 1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        this.showTimeline(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        this.showTimeline(this.timeline.length - 1);
+      }
+    });
+
     this.container.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((button) => {
       button.addEventListener('click', () => {
         const nav = button.dataset.nav;
@@ -513,7 +591,7 @@ export class ChessBoardView {
       <div class="options-panel">
         <h2>Опции прицепа</h2>
         ${items}
-        <button type="button" class="btn btn-secondary btn-sm btn-block reset-options-btn" style="margin-top: 0.6rem;">↺ Сбросить опции</button>
+        <button type="button" class="btn btn-secondary btn-sm btn-block reset-options-btn" style="margin-top: 0.6rem;">Сбросить опции</button>
       </div>`;
   }
 
@@ -559,10 +637,6 @@ export class ChessBoardView {
     this.renderHistory();
     this.renderHint();
     this.renderControls();
-    this.timelineStatusEl.textContent =
-      this.timelineIndex === this.timeline.length - 1
-        ? ''
-        : `Просмотр прошлого состояния (${this.timelineIndex}/${this.timeline.length - 1}). Ходы отключены.`;
   }
 
   private renderControls(): void {
@@ -578,6 +652,15 @@ export class ChessBoardView {
     if (btnBack) btnBack.disabled = isAtStart;
     if (btnForward) btnForward.disabled = isAtEnd;
     if (btnEnd) btnEnd.disabled = isAtEnd;
+
+    const latestSnapshot = this.timeline[this.timeline.length - 1];
+    const gameIsOngoing = latestSnapshot ? latestSnapshot.result.status === 'ongoing' : true;
+    const isBrowsingPast = !isAtEnd;
+    const shouldPulse = isBrowsingPast && gameIsOngoing;
+
+    if (btnEnd) {
+      btnEnd.classList.toggle('pulse', shouldPulse);
+    }
   }
 
   private showTimeline(index: number): void {
@@ -591,6 +674,19 @@ export class ChessBoardView {
       this.isBrowsingHistory = false;
     }
     this.clearSelection();
+
+    const snap = this.timeline[next];
+    if (next > 0 && snap && snap.moveHistory.length > 0) {
+      const lastMove = snap.moveHistory[snap.moveHistory.length - 1];
+      this.lastMoveSquares = new Set([lastMove.from, lastMove.to]);
+      for (const f of lastMove.followers ?? []) {
+        this.lastMoveSquares.add(f.from);
+        this.lastMoveSquares.add(f.to);
+      }
+    } else {
+      this.lastMoveSquares.clear();
+    }
+
     this.render();
   }
 
@@ -720,16 +816,34 @@ export class ChessBoardView {
   }
 
   private renderHistory(): void {
-    const moves = this.game.getSnapshot().moveHistory;
+    const latestSnapshot = this.timeline[this.timeline.length - 1];
+    const fullMoves = latestSnapshot?.moveHistory ?? [];
     this.historyEl.innerHTML = '';
 
-    for (let i = 0; i < moves.length; i += 2) {
+    for (let i = 0; i < fullMoves.length; i += 2) {
       const li = document.createElement('li');
       const moveNum = Math.floor(i / 2) + 1;
-      const white = moves[i]?.san ?? '';
-      const black = moves[i + 1]?.san ?? '';
-      li.innerHTML = `<span class="move-num">${moveNum}.</span> ${white} ${black}`;
+      const whiteSnap = i + 1;
+      const blackSnap = i + 2;
+
+      const whiteSan = fullMoves[i]?.san ?? '';
+      const blackSan = fullMoves[i + 1]?.san ?? '';
+
+      const isWhiteActive = this.timelineIndex === whiteSnap;
+      const isBlackActive = this.timelineIndex === blackSnap;
+
+      let html = `<span class="move-num">${moveNum}.</span>`;
+      html += ` <span class="move-san ${isWhiteActive ? 'active' : ''}" data-snapshot="${whiteSnap}">${whiteSan}</span>`;
+      if (fullMoves[i + 1]) {
+        html += ` <span class="move-san ${isBlackActive ? 'active' : ''}" data-snapshot="${blackSnap}">${blackSan}</span>`;
+      }
+      li.innerHTML = html;
       this.historyEl.appendChild(li);
+    }
+
+    const activeSpan = this.historyEl.querySelector<HTMLElement>('.move-san.active');
+    if (activeSpan) {
+      activeSpan.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
   }
 
