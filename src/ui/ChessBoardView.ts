@@ -1,4 +1,4 @@
-import type { Color, GameController, GameResult, GameSnapshot, Move, PieceType, Square, TrailerOptions } from '../core';
+import type { Color, GameController, GameResult, GameSnapshot, Move, Piece, PieceType, Square, TrailerOptions } from '../core';
 import { addDelta, getDelta, DEFAULT_TRAILER_OPTIONS } from '../core';
 import { NetworkManager } from '../net';
 import { createPieceImg } from './pieceAssets';
@@ -43,6 +43,7 @@ export class ChessBoardView {
   private timeline: GameSnapshot[] = [];
   private timelineIndex = 0;
   private isBrowsingHistory = false;
+  private isLastMoveFromDrag = false;
 
   private mode: 'local' | 'online' = 'local';
   private net = new NetworkManager();
@@ -666,6 +667,9 @@ export class ChessBoardView {
   private showTimeline(index: number): void {
     const next = Math.max(0, Math.min(index, this.timeline.length - 1));
     if (next === this.timelineIndex) return;
+
+    const oldBoardState = this.captureBoardState();
+
     this.timelineIndex = next;
     this.isBrowsingHistory = true;
     try {
@@ -688,20 +692,27 @@ export class ChessBoardView {
     }
 
     this.render();
+    this.animateBoardTransition(oldBoardState, 160);
   }
 
   private getSelectableFollowers(): Square[] {
     if (!this.leadingSquare) return [];
     const opts = this.game.getTrailerOptions();
-    const direct = this.game.getProtectors(this.leadingSquare);
+    const direct = this.game.getDirectProtectors(this.leadingSquare);
     if (!opts?.allowRecursiveGroup || !opts?.allowMultiFollower) {
-      return direct;
+      return direct.filter((p) => !opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k');
     }
 
-    const selectable = new Set<Square>(direct);
+    const selectable = new Set<Square>();
+    for (const p of direct) {
+      if (!opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k') {
+        selectable.add(p);
+      }
+    }
+
     for (const follower of this.followerSquares) {
-      for (const p of this.game.getProtectors(follower)) {
-        if (p !== this.leadingSquare) {
+      for (const p of this.game.getDirectProtectors(follower)) {
+        if (p !== this.leadingSquare && (!opts?.kingCannotBeFollower || this.game.getPiece(p)?.type !== 'k')) {
           selectable.add(p);
         }
       }
@@ -743,10 +754,70 @@ export class ChessBoardView {
     }
   }
 
+  private getProtectionDepths(leadingSq: Square): Map<Square, number> {
+    const depths = new Map<Square, number>();
+    const opts = this.game.getTrailerOptions();
+    if (!opts) return depths;
+
+    const queue: Array<{ square: Square; depth: number }> = [{ square: leadingSq, depth: 0 }];
+    const visited = new Set<Square>([leadingSq]);
+
+    while (queue.length > 0) {
+      const { square: curr, depth: currDepth } = queue.shift()!;
+      const protectors = this.game.getDirectProtectors(curr);
+
+      for (const p of protectors) {
+        if (visited.has(p)) continue;
+        if (opts.kingCannotBeFollower && this.game.getPiece(p)?.type === 'k') continue;
+
+        visited.add(p);
+        const d = currDepth + 1;
+        depths.set(p, d);
+
+        if (opts.allowRecursiveGroup && opts.allowMultiFollower) {
+          queue.push({ square: p, depth: d });
+        }
+      }
+    }
+
+    return depths;
+  }
+
+  private pruneDisconnectedFollowers(): void {
+    if (!this.leadingSquare || this.followerSquares.size === 0) return;
+
+    const reachable = new Set<Square>([this.leadingSquare]);
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      for (const follower of Array.from(this.followerSquares)) {
+        if (!reachable.has(follower)) {
+          for (const targetSq of Array.from(reachable)) {
+            const protectors = this.game.getDirectProtectors(targetSq);
+            if (protectors.includes(follower)) {
+              reachable.add(follower);
+              changed = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    for (const follower of Array.from(this.followerSquares)) {
+      if (!reachable.has(follower)) {
+        this.followerSquares.delete(follower);
+      }
+    }
+  }
+
   private renderBoard(): void {
     this.boardEl.innerHTML = '';
     const displayFiles = this.flipped ? [...FILES].reverse() : FILES;
     const displayRanks = this.flipped ? [...RANKS].reverse() : RANKS;
+
+    const protectionDepths = this.leadingSquare ? this.getProtectionDepths(this.leadingSquare) : new Map<Square, number>();
 
     for (const rank of displayRanks) {
       for (const file of displayFiles) {
@@ -773,6 +844,20 @@ export class ChessBoardView {
         if (this.followerSquares.has(square)) cell.classList.add('follower-selected');
         if (this.legalTargets.has(square)) cell.classList.add('target');
         if (this.lastMoveSquares.has(square)) cell.classList.add('last-move');
+
+        if (
+          this.leadingSquare &&
+          protectionDepths.has(square) &&
+          square !== this.leadingSquare &&
+          !this.followerSquares.has(square)
+        ) {
+          cell.classList.add('chain-marker');
+          const d = protectionDepths.get(square)!;
+          if (d === 1) cell.classList.add('chain-depth-1');
+          else if (d === 2) cell.classList.add('chain-depth-2');
+          else if (d === 3) cell.classList.add('chain-depth-3');
+          else cell.classList.add('chain-depth-4');
+        }
 
         const piece = this.game.getPiece(square);
         if (piece) {
@@ -868,12 +953,24 @@ export class ChessBoardView {
         return;
       }
 
+      if (this.followerSquares.has(square)) {
+        this.toggleFollower(square);
+        return;
+      }
+
       if (piece && piece.color === turn && square !== this.leadingSquare) {
         const selectable = this.getSelectableFollowers();
         if (selectable.includes(square)) {
           this.toggleFollower(square);
           return;
         }
+
+        const depths = this.getProtectionDepths(this.leadingSquare);
+        if (depths.has(square)) {
+          // Inside protection tree of leading piece, but intermediate link is missing. Do not add as follower & do not switch leading piece.
+          return;
+        }
+
         this.selectLeading(square);
         return;
       }
@@ -884,9 +981,6 @@ export class ChessBoardView {
       }
 
       this.clearSelection();
-      if (piece && piece.color === turn) {
-        this.selectLeading(square);
-      }
       return;
     }
 
@@ -899,11 +993,13 @@ export class ChessBoardView {
     const opts = this.game.getTrailerOptions();
     if (this.followerSquares.has(square)) {
       this.followerSquares.delete(square);
+      this.pruneDisconnectedFollowers();
     } else {
       if (!opts?.allowMultiFollower) {
         this.followerSquares.clear();
       }
       this.followerSquares.add(square);
+      this.pruneDisconnectedFollowers();
     }
     this.refreshLegalTargets();
     this.render();
@@ -997,12 +1093,93 @@ export class ChessBoardView {
     this.executeMove(from, to, leadingPromotion, context);
   }
 
+  private captureBoardState(): Map<Square, Piece> {
+    const state = new Map<Square, Piece>();
+    const ALL_SQUARES: Square[] = [
+      'a1','a2','a3','a4','a5','a6','a7','a8',
+      'b1','b2','b3','b4','b5','b6','b7','b8',
+      'c1','c2','c3','c4','c5','c6','c7','c8',
+      'd1','d2','d3','d4','d5','d6','d7','d8',
+      'e1','e2','e3','e4','e5','e6','e7','e8',
+      'f1','f2','f3','f4','f5','f6','f7','f8',
+      'g1','g2','g3','g4','g5','g6','g7','g8',
+      'h1','h2','h3','h4','h5','h6','h7','h8',
+    ];
+    for (const sq of ALL_SQUARES) {
+      const p = this.game.getPiece(sq);
+      if (p) state.set(sq, { type: p.type, color: p.color });
+    }
+    return state;
+  }
+
+  private animateBoardTransition(
+    oldBoardState: Map<Square, Piece>,
+    duration = 160,
+  ): void {
+    const ALL_SQUARES: Square[] = [
+      'a1','a2','a3','a4','a5','a6','a7','a8',
+      'b1','b2','b3','b4','b5','b6','b7','b8',
+      'c1','c2','c3','c4','c5','c6','c7','c8',
+      'd1','d2','d3','d4','d5','d6','d7','d8',
+      'e1','e2','e3','e4','e5','e6','e7','e8',
+      'f1','f2','f3','f4','f5','f6','f7','f8',
+      'g1','g2','g3','g4','g5','g6','g7','g8',
+      'h1','h2','h3','h4','h5','h6','h7','h8',
+    ];
+
+    const usedOldSquares = new Set<Square>();
+    const changedNewSquares: Square[] = [];
+
+    for (const sq of ALL_SQUARES) {
+      const newP = this.game.getPiece(sq);
+      const oldP = oldBoardState.get(sq);
+      if (newP && oldP && newP.type === oldP.type && newP.color === oldP.color) {
+        usedOldSquares.add(sq);
+      } else if (newP) {
+        changedNewSquares.push(sq);
+      }
+    }
+
+    const shifts: Array<{ from: Square; to: Square }> = [];
+
+    for (const newSq of changedNewSquares) {
+      const newP = this.game.getPiece(newSq)!;
+      let bestOldSq: Square | null = null;
+      let minDistance = Infinity;
+
+      for (const [oldSq, oldP] of oldBoardState.entries()) {
+        if (usedOldSquares.has(oldSq)) continue;
+        if (oldP.type === newP.type && oldP.color === newP.color) {
+          const f1 = FILES.indexOf(oldSq[0]), r1 = parseInt(oldSq[1], 10);
+          const f2 = FILES.indexOf(newSq[0]), r2 = parseInt(newSq[1], 10);
+          const dist = Math.hypot(f1 - f2, r1 - r2);
+          if (dist < minDistance) {
+            minDistance = dist;
+            bestOldSq = oldSq;
+          }
+        }
+      }
+
+      if (bestOldSq) {
+        usedOldSquares.add(bestOldSq);
+        shifts.push({ from: bestOldSq, to: newSq });
+      }
+    }
+
+    if (shifts.length > 0) {
+      this.animateShifts(shifts, duration);
+    }
+  }
+
   private executeMove(
     from: Square,
     to: Square,
     promotion?: PieceType,
     context?: { followers: Square[]; followerPromotions?: Partial<Record<Square, PieceType>> },
   ): void {
+    const wasDrag = this.isLastMoveFromDrag;
+    this.isLastMoveFromDrag = false;
+
     const result = this.game.tryMove(from, to, promotion, context);
     this.leadingSquare = null;
     this.followerSquares.clear();
@@ -1016,22 +1193,38 @@ export class ChessBoardView {
       }
     }
     this.render();
-    if (result.ok) this.animateGroupMove(result.move);
+    if (result.ok && !wasDrag) {
+      this.animateGroupMove(result.move, 220);
+    }
   }
 
-  private animateGroupMove(move: Move): void {
-    const shifts = [{ from: move.from, to: move.to }, ...(move.followers ?? [])].filter(
-      (shift) => !('removed' in shift && shift.removed),
-    );
+  private animateGroupMove(move: Move, duration = 220): void {
+    const shifts = [{ from: move.from, to: move.to }, ...(move.followers ?? [])]
+      .filter((shift) => !('removed' in shift && shift.removed))
+      .map((s) => ({ from: s.from, to: s.to }));
+    this.animateShifts(shifts, duration);
+  }
+
+  private animateShifts(shifts: Array<{ from: Square; to: Square }>, duration = 200): void {
+    this.boardEl.querySelectorAll('.moving-piece').forEach((el) => el.remove());
+    this.boardEl.querySelectorAll<HTMLElement>('.piece-img').forEach((img) => (img.style.visibility = 'visible'));
+
     for (const shift of shifts) {
-      const from = this.boardEl.querySelector<HTMLElement>(`[data-square="${shift.from}"]`);
-      const to = this.boardEl.querySelector<HTMLElement>(`[data-square="${shift.to}"]`);
-      const piece = to?.querySelector<HTMLImageElement>('.piece-img');
-      if (!from || !to || !piece) continue;
-      const a = from.getBoundingClientRect();
-      const b = to.getBoundingClientRect();
-      const ghost = piece.cloneNode(true) as HTMLImageElement;
+      if (shift.from === shift.to) continue;
+      const fromCell = this.boardEl.querySelector<HTMLElement>(`[data-square="${shift.from}"]`);
+      const toCell = this.boardEl.querySelector<HTMLElement>(`[data-square="${shift.to}"]`);
+      const toPieceImg = toCell?.querySelector<HTMLImageElement>('.piece-img');
+
+      if (!fromCell || !toCell || !toPieceImg) continue;
+
+      const a = fromCell.getBoundingClientRect();
+      const b = toCell.getBoundingClientRect();
+
+      toPieceImg.style.visibility = 'hidden';
+
+      const ghost = toPieceImg.cloneNode(true) as HTMLImageElement;
       ghost.className = 'piece-img moving-piece';
+      ghost.style.visibility = 'visible';
       Object.assign(ghost.style, {
         left: `${b.left}px`,
         top: `${b.top}px`,
@@ -1039,14 +1232,19 @@ export class ChessBoardView {
         height: `${b.height}px`,
       });
       document.body.appendChild(ghost);
+
       const animation = ghost.animate(
         [
           { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px)` },
           { transform: 'translate(0, 0)' },
         ],
-        { duration: 240, easing: 'cubic-bezier(.2,.75,.25,1)' },
+        { duration, easing: 'cubic-bezier(.2,.75,.25,1)' },
       );
-      animation.onfinish = () => ghost.remove();
+
+      animation.onfinish = () => {
+        toPieceImg.style.visibility = 'visible';
+        ghost.remove();
+      };
     }
   }
 
@@ -1163,6 +1361,7 @@ export class ChessBoardView {
         ? { followers: [...this.followerSquares] }
         : undefined;
     if (!this.game.getLegalMoves(from, context).some((move) => move.to === to)) return;
+    this.isLastMoveFromDrag = true;
     void this.attemptMove(from, to);
   }
 

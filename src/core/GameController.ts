@@ -96,8 +96,15 @@ export class GameController {
 
   /** Доступно только для «шахмат с прицепом». */
   getProtectors(square: Square): Square[] {
-    if ('getProtectors' in this.rules && typeof this.rules.getProtectors === 'function') {
+    if ('getProtectors' in this.rules && typeof (this.rules as any).getProtectors === 'function') {
       return (this.rules as TrailerChessRules).getProtectors(square);
+    }
+    return [];
+  }
+
+  getDirectProtectors(square: Square): Square[] {
+    if ('getDirectProtectors' in this.rules && typeof (this.rules as any).getDirectProtectors === 'function') {
+      return (this.rules as TrailerChessRules).getDirectProtectors(square);
     }
     return [];
   }

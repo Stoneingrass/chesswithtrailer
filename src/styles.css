@@ -220,6 +220,51 @@ body {
   box-shadow: inset 0 0 0 100vmax var(--last-move), inset 0 0 0 4px var(--follower-highlight);
 }
 
+/* Protection chain indicator markers (static, non-animated) */
+.square.chain-marker::before {
+  content: '';
+  position: absolute;
+  top: 6%;
+  right: 6%;
+  width: 22%;
+  height: 22%;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+/* Level 1: Direct protector of leading piece (brightest) */
+.square.chain-depth-1::before {
+  background: #e9d5ff;
+  border: 1.5px solid #ffffff;
+  box-shadow: 0 0 8px rgba(233, 213, 255, 0.95);
+  opacity: 1;
+}
+
+/* Level 2: Second degree protector (medium brightness) */
+.square.chain-depth-2::before {
+  background: #a855f7;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 5px rgba(168, 85, 247, 0.65);
+  opacity: 0.75;
+}
+
+/* Level 3: Third degree protector (soft brightness) */
+.square.chain-depth-3::before {
+  background: #7e22ce;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 3px rgba(126, 34, 206, 0.4);
+  opacity: 0.5;
+}
+
+/* Level 4+: Fourth degree and deeper (faint brightness) */
+.square.chain-depth-4::before {
+  background: #581c87;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  opacity: 0.3;
+}
+
 .piece-img {
   width: 88%;
   height: 88%;
