@@ -1352,6 +1352,10 @@ export class ChessBoardView {
     event.dataTransfer?.setData('text/plain', square);
     event.dataTransfer!.effectAllowed = 'move';
 
+    if (this.leadingSquare !== square) {
+      this.selectLeading(square);
+    }
+
     if (this.leadingSquare === square && this.followerSquares.size > 0) {
       this.createDragPreview(event, this.leadingSquare, this.followerSquares);
     }
@@ -1453,6 +1457,9 @@ export class ChessBoardView {
 
     if (!this.isTouchDragging && Math.hypot(dx, dy) > 7) {
       this.isTouchDragging = true;
+      if (this.touchDragFrom && this.leadingSquare !== this.touchDragFrom) {
+        this.selectLeading(this.touchDragFrom);
+      }
       this.createTouchDragAvatar(this.touchDragFrom, e.clientX, e.clientY);
     }
 
