@@ -45,6 +45,13 @@ export class ChessBoardView {
   private isBrowsingHistory = false;
   private isLastMoveFromDrag = false;
 
+  private touchDragFrom: Square | null = null;
+  private touchDragAvatar: HTMLElement | null = null;
+  private touchDragStartX = 0;
+  private touchDragStartY = 0;
+  private isTouchDragging = false;
+  private ignoreNextClick = false;
+
   private mode: 'local' | 'online' = 'local';
   private net = new NetworkManager();
   private netErrorMessage: string | null = null;
@@ -871,6 +878,7 @@ export class ChessBoardView {
         cell.addEventListener('dragover', (event) => this.onDragOver(event, square));
         cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
         cell.addEventListener('drop', (event) => this.onDrop(event, square));
+        cell.addEventListener('pointerdown', (event) => this.onPointerDown(event, square));
         cell.addEventListener('click', () => this.onSquareClick(square));
         this.boardEl.appendChild(cell);
       }
@@ -928,7 +936,17 @@ export class ChessBoardView {
 
     const activeSpan = this.historyEl.querySelector<HTMLElement>('.move-san.active');
     if (activeSpan) {
-      activeSpan.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      const container = this.historyEl;
+      const itemTop = activeSpan.offsetTop - container.offsetTop;
+      const itemBottom = itemTop + activeSpan.offsetHeight;
+      const containerTop = container.scrollTop;
+      const containerBottom = containerTop + container.clientHeight;
+
+      if (itemTop < containerTop) {
+        container.scrollTop = itemTop;
+      } else if (itemBottom > containerBottom) {
+        container.scrollTop = itemBottom - container.clientHeight;
+      }
     }
   }
 
@@ -939,6 +957,10 @@ export class ChessBoardView {
   }
 
   private onSquareClick(square: Square): void {
+    if (this.ignoreNextClick) {
+      this.ignoreNextClick = false;
+      return;
+    }
     if (this.timelineIndex !== this.timeline.length - 1) return;
     if (!this.isMyTurn()) return;
     const result = this.game.getResult();
@@ -1404,5 +1426,149 @@ export class ChessBoardView {
       });
       options.appendChild(cancel);
     });
+  }
+
+  private onPointerDown(e: PointerEvent, square: Square): void {
+    if (e.button !== 0) return;
+    if (this.timelineIndex !== this.timeline.length - 1) return;
+    if (!this.isMyTurn()) return;
+    if (this.game.getResult().status !== 'ongoing') return;
+    const piece = this.game.getPiece(square);
+    if (!piece || piece.color !== this.game.getTurn()) return;
+
+    this.touchDragFrom = square;
+    this.touchDragStartX = e.clientX;
+    this.touchDragStartY = e.clientY;
+    this.isTouchDragging = false;
+
+    window.addEventListener('pointermove', this.onPointerMove, { passive: false });
+    window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
+  }
+
+  private onPointerMove = (e: PointerEvent): void => {
+    if (!this.touchDragFrom) return;
+    const dx = e.clientX - this.touchDragStartX;
+    const dy = e.clientY - this.touchDragStartY;
+
+    if (!this.isTouchDragging && Math.hypot(dx, dy) > 7) {
+      this.isTouchDragging = true;
+      this.createTouchDragAvatar(this.touchDragFrom, e.clientX, e.clientY);
+    }
+
+    if (this.isTouchDragging && this.touchDragAvatar) {
+      if (e.cancelable) e.preventDefault();
+
+      const leadingCell = this.boardEl.querySelector<HTMLElement>(`[data-square="${this.touchDragFrom}"]`);
+      const tileSize = leadingCell?.getBoundingClientRect().width || 50;
+
+      this.touchDragAvatar.style.left = `${e.clientX - tileSize / 2}px`;
+      this.touchDragAvatar.style.top = `${e.clientY - tileSize / 2}px`;
+
+      const elem = document.elementFromPoint(e.clientX, e.clientY);
+      const targetCell = elem?.closest<HTMLElement>('.square');
+      const targetSquare = targetCell?.dataset.square as Square | undefined;
+
+      this.boardEl.querySelectorAll('.drag-over').forEach((c) => c.classList.remove('drag-over'));
+      if (targetSquare && targetSquare !== this.touchDragFrom) {
+        const context =
+          this.leadingSquare === this.touchDragFrom && this.followerSquares.size > 0
+            ? { followers: [...this.followerSquares] }
+            : undefined;
+        const allowed = this.game.getLegalMoves(this.touchDragFrom, context).some((m) => m.to === targetSquare);
+        if (allowed && targetCell) {
+          targetCell.classList.add('drag-over');
+        }
+      }
+    }
+  };
+
+  private onPointerUp = (e: PointerEvent): void => {
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
+
+    if (this.isTouchDragging) {
+      this.ignoreNextClick = true;
+      if (this.touchDragAvatar) {
+        this.touchDragAvatar.remove();
+        this.touchDragAvatar = null;
+      }
+      this.boardEl.querySelectorAll('.drag-over').forEach((c) => c.classList.remove('drag-over'));
+
+      const elem = document.elementFromPoint(e.clientX, e.clientY);
+      const targetCell = elem?.closest<HTMLElement>('.square');
+      const toSquare = targetCell?.dataset.square as Square | undefined;
+
+      const fromSquare = this.touchDragFrom;
+      this.touchDragFrom = null;
+      this.isTouchDragging = false;
+
+      if (fromSquare && toSquare && fromSquare !== toSquare) {
+        const context =
+          this.leadingSquare === fromSquare && this.followerSquares.size > 0
+            ? { followers: [...this.followerSquares] }
+            : undefined;
+        const allowed = this.game.getLegalMoves(fromSquare, context).some((m) => m.to === toSquare);
+        if (allowed) {
+          this.isLastMoveFromDrag = true;
+          void this.attemptMove(fromSquare, toSquare);
+        }
+      }
+    } else {
+      this.touchDragFrom = null;
+      this.isTouchDragging = false;
+    }
+  };
+
+  private createTouchDragAvatar(leadingSq: Square, clientX: number, clientY: number): void {
+    if (this.touchDragAvatar) {
+      this.touchDragAvatar.remove();
+      this.touchDragAvatar = null;
+    }
+
+    const leadingCell = this.boardEl.querySelector<HTMLElement>(`[data-square="${leadingSq}"]`);
+    if (!leadingCell) return;
+    const leadingRect = leadingCell.getBoundingClientRect();
+    const tileSize = leadingRect.width;
+
+    const followerSqs = this.leadingSquare === leadingSq ? this.followerSquares : new Set<Square>();
+    const group = [leadingSq, ...followerSqs];
+
+    const container = document.createElement('div');
+    container.className = 'touch-drag-avatar';
+    Object.assign(container.style, {
+      position: 'fixed',
+      pointerEvents: 'none',
+      zIndex: '10000',
+      left: `${clientX - tileSize / 2}px`,
+      top: `${clientY - tileSize / 2}px`,
+      opacity: '0.88',
+      filter: 'drop-shadow(0 6px 16px rgba(0,0,0,0.55))',
+    });
+
+    for (const sq of group) {
+      const p = this.game.getPiece(sq);
+      if (!p) continue;
+      const cell = this.boardEl.querySelector<HTMLElement>(`[data-square="${sq}"]`);
+      if (!cell) continue;
+      const rect = cell.getBoundingClientRect();
+
+      const relX = rect.left - leadingRect.left;
+      const relY = rect.top - leadingRect.top;
+
+      const img = createPieceImg(p.color, p.type);
+      Object.assign(img.style, {
+        position: 'absolute',
+        left: `${relX}px`,
+        top: `${relY}px`,
+        width: `${tileSize}px`,
+        height: `${tileSize}px`,
+      });
+      container.appendChild(img);
+    }
+
+    document.body.appendChild(container);
+    this.touchDragAvatar = container;
   }
 }
