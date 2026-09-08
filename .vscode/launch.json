@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Запустить в Chrome (Vite Dev Server)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:5500",
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "npm: dev"
+    },
+    {
+      "name": "Запустить в Edge (Vite Dev Server)",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://127.0.0.1:5500",
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "npm: dev"
+    }
+  ]
+}

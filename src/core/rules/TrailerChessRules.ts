@@ -15,14 +15,15 @@ interface PlannedFollower {
   from: Square;
   to: Square | null;
   piece: Piece;
+  promotion?: PieceType;
 }
 
 /**
- * «Шахматы с прицепом» — ведущая фигура ходит по стандартным правилам,
+ * «Шахматы с прицепом»: ведущая фигура ходит по стандартным правилам,
  * ведомые (защитники ведущей) смещаются на тот же вектор.
  */
 export class TrailerChessRules extends StandardChessRules {
-  override readonly name = 'шахматы с прицепом';
+  override readonly name = 'Шахматы с "прицепом"';
 
   private options: TrailerOptions;
 
@@ -40,6 +41,10 @@ export class TrailerChessRules extends StandardChessRules {
     this.options = { ...this.options, ...partial };
     if (!this.options.allowMultiFollower) {
       this.options.allowRecursiveGroup = false;
+    }
+    if (!this.options.allowFollowerCaptureWithoutLeadingCapture) {
+      this.options.allowGroupCapture = false;
+      this.options.allowFollowerFriendlyCapture = false;
     }
     saveTrailerOptions(this.options);
   }
@@ -167,7 +172,7 @@ export class TrailerChessRules extends StandardChessRules {
     const group = this.resolveFollowerGroup(square, followers);
 
     return candidateMoves.filter((m) => {
-      const validation = this.validateTrailerMove(m.from, m.to, group, m.promotion);
+      const validation = this.validateTrailerMove(m.from, m.to, group, m.promotion, context);
       if (!validation.ok) return false;
       return this.isTrailerMoveKingSafe(m.from, m.to, m.promotion, validation.followers);
     });
@@ -194,15 +199,16 @@ export class TrailerChessRules extends StandardChessRules {
 
     const followers = context?.followers ?? [];
     const group = this.resolveFollowerGroup(from, followers);
-    const validation = this.validateTrailerMove(from, to, group, promotion);
+    const validation = this.validateTrailerMove(from, to, group, promotion, context);
     if (!validation.ok) {
       return { ok: false, reason: validation.reason };
     }
 
+    const leadingPromotion = leadingPiece.type === 'p' ? promotion : undefined;
     const plannedFollowers = validation.followers;
     const fenBeforeMove = this.chess.fen();
 
-    this.applyFullMove(from, to, promotion, plannedFollowers, leadingPiece);
+    this.applyFullMove(from, to, leadingPromotion, plannedFollowers, leadingPiece);
 
     if (this.isKingAttacked(leadingPiece.color)) {
       this.chess = new Chess(fenBeforeMove);
@@ -210,23 +216,23 @@ export class TrailerChessRules extends StandardChessRules {
     }
 
     const san = this.formatMoveNotation(
-      this.generateSanForMove(from, to, promotion, leadingPiece, pseudoMatch),
+      this.generateSanForMove(from, to, leadingPromotion, leadingPiece, pseudoMatch),
       plannedFollowers,
     );
 
-    this.finalizeMoveState(fenBeforeMove, from, to, promotion, leadingPiece, plannedFollowers);
+    this.finalizeMoveState(fenBeforeMove, from, to, leadingPromotion, leadingPiece, plannedFollowers);
 
     const recorded: Move = {
       from: from,
       to: to,
-      promotion: promotion,
+      promotion: leadingPromotion,
       san: san,
       isEnPassant: pseudoMatch.isEnPassant,
       isCastle: pseudoMatch.isCastle,
       followers: plannedFollowers.map((f) => ({
         from: f.from,
         to: f.to ?? f.from,
-        piece: f.piece.type,
+        piece: f.piece.type === 'p' && f.promotion ? f.promotion : f.piece.type,
         removed: f.to === null,
       })),
     };
@@ -252,8 +258,10 @@ export class TrailerChessRules extends StandardChessRules {
       this.chess.remove(epCapturedSq as ChessJsSquare);
     }
 
+    const leadingType = leadingPiece.type === 'p' && promotion ? promotion : leadingPiece.type;
+
     this.chess.put(
-      { type: promotion ?? leadingPiece.type, color: leadingPiece.color },
+      { type: leadingType, color: leadingPiece.color },
       to as ChessJsSquare,
     );
 
@@ -385,7 +393,8 @@ export class TrailerChessRules extends StandardChessRules {
     leadingFrom: Square,
     leadingTo: Square,
     followers: Square[],
-    _promotion?: PieceType,
+    promotion?: PieceType,
+    context?: MoveContext,
   ): { ok: true; followers: PlannedFollower[] } | { ok: false; reason: string } {
     const leadingPiece = this.getPiece(leadingFrom);
     if (!leadingPiece) {
@@ -498,7 +507,15 @@ export class TrailerChessRules extends StandardChessRules {
       const pathOk = this.validateFollowerPath(from, to, leadingPiece.type, movingFrom, leadingTo);
       if (!pathOk.ok) return pathOk;
 
-      planned.push({ from, to, piece });
+      let followerPromotion: PieceType | undefined = undefined;
+      if (piece.type === 'p' && to !== null) {
+        const lastRank = piece.color === 'w' ? '8' : '1';
+        if (to[1] === lastRank) {
+          followerPromotion = context?.followerPromotions?.[from] || promotion || 'q';
+        }
+      }
+
+      planned.push({ from, to, piece, promotion: followerPromotion });
     }
 
     return { ok: true, followers: planned };
@@ -543,7 +560,7 @@ export class TrailerChessRules extends StandardChessRules {
       this.chess.remove(from as ChessJsSquare);
     }
 
-    for (const { to, piece } of planned) {
+    for (const { to, piece, promotion } of planned) {
       if (to === null) continue;
 
       const occupant = this.chess.get(to as ChessJsSquare);
@@ -551,8 +568,10 @@ export class TrailerChessRules extends StandardChessRules {
         this.chess.remove(to as ChessJsSquare);
       }
 
+      const finalType = piece.type === 'p' && promotion ? promotion : piece.type;
+
       this.chess.put(
-        { type: piece.type as PieceType, color: piece.color },
+        { type: finalType as PieceType, color: piece.color },
         to as ChessJsSquare,
       );
     }
@@ -561,7 +580,10 @@ export class TrailerChessRules extends StandardChessRules {
   private formatMoveNotation(san: string, followers: PlannedFollower[]): string {
     if (followers.length === 0) return san;
     const trailer = followers
-      .map((f) => `${this.pieceName(f.piece.type)}${f.from}${f.to ? `→${f.to}` : '×'}`)
+      .map((f) => {
+        const promoStr = f.piece.type === 'p' && f.promotion ? `=${f.promotion.toUpperCase()}` : '';
+        return `${this.pieceName(f.piece.type)}${f.from}${f.to ? `→${f.to}` : '×'}${promoStr}`;
+      })
       .join(', ');
     return `${san} + ${trailer}`;
   }

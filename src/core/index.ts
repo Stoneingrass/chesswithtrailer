@@ -5,3 +5,4 @@ export { DEFAULT_TRAILER_OPTIONS, loadTrailerOptions, saveTrailerOptions } from 
 export { StandardChessRules } from './rules/StandardChessRules';
 export { TrailerChessRules } from './rules/TrailerChessRules';
 export { GameController } from './GameController';
+export { addDelta, getDelta } from './boardUtils';

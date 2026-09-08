@@ -1,4 +1,4 @@
-import type { Square } from '../types';
+import type { PieceType, Square } from '../types';
 
 /** Опциональные правила варианта «шахматы с прицепом». */
 export interface TrailerOptions {
@@ -27,7 +27,7 @@ export const DEFAULT_TRAILER_OPTIONS: TrailerOptions = {
   allowGroupCapture: false,
   allowFollowerCaptureWithoutLeadingCapture: false,
   allowFollowerFriendlyCapture: false,
-  kingCannotBeFollower: true,
+  kingCannotBeFollower: false,
   followerOffBoardRemoved: false,
 };
 
@@ -55,4 +55,6 @@ export interface FollowerShift {
 export interface MoveContext {
   /** Клетки ведомых фигур (до хода) */
   followers?: Square[];
+  /** Выбранные превращения ведомых пешек { [followerFromSquare]: PieceType } */
+  followerPromotions?: Partial<Record<Square, PieceType>>;
 }

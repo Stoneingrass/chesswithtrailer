@@ -1,4 +1,5 @@
 import type { Color, GameController, GameResult, GameSnapshot, Move, PieceType, Square, TrailerOptions } from '../core';
+import { addDelta, getDelta, DEFAULT_TRAILER_OPTIONS } from '../core';
 import { NetworkManager } from '../net';
 import { createPieceImg } from './pieceAssets';
 
@@ -9,10 +10,10 @@ const SAVE_KEY = 'omnichess-saved-game-state';
 const TRAILER_OPTION_LABELS: Record<keyof TrailerOptions, string> = {
   allowFollowerCaptureWithoutLeadingCapture: 'Взятие "прицепом"',
   allowGroupCapture: 'Взятие нескольких фигур',
-  allowFollowerFriendlyCapture: '«Прицеп» может сбивать свои фигуры',
+  allowFollowerFriendlyCapture: 'Взятие своих фигур "прицепом"',
   allowMultiFollower: '"Прицеп" из 2+ фигур',
-  allowRecursiveGroup: 'Рекурсивное присоединение к "прицепу"',
-  allowPassThrough: 'Перепрыгивание "прицепом"',
+  allowRecursiveGroup: 'Рекурсивное формирование "прицепа"',
+  allowPassThrough: 'Перепрыгивание "прицепом" других фигур',
   followerOffBoardRemoved: '"Прицеп" может вылететь за доску',
   kingCannotBeFollower: 'Король не может быть "прицепом"',
 };
@@ -382,7 +383,7 @@ export class ChessBoardView {
           <button type="button" class="btn btn-primary btn-block" data-net-action="create">⚡ Создать комнату</button>
           <div class="net-divider">или войти по коду</div>
           <form class="join-form">
-            <input type="text" class="room-code-input" placeholder="Код (напр. K9X2P4)" maxLength="6" />
+            <input type="text" class="room-code-input" placeholder="напр. K9X2P4" maxLength="6" />
             <button type="submit" class="btn btn-secondary">Войти</button>
           </form>
         </div>
@@ -485,21 +486,34 @@ export class ChessBoardView {
     const opts = this.game.getTrailerOptions();
     if (!opts) return '';
 
+    const isCaptureSubDisabled = !opts.allowFollowerCaptureWithoutLeadingCapture;
+    const isMultiSubDisabled = !opts.allowMultiFollower;
+
     const items = (Object.keys(TRAILER_OPTION_LABELS) as Array<keyof TrailerOptions>)
-      .map(
-        (key) => `
-        <label class="option-item ${key === 'allowRecursiveGroup' && !opts.allowMultiFollower ? 'is-disabled' : ''}">
-          <input type="checkbox" data-opt="${key}" ${opts[key] ? 'checked' : ''}
-            ${key === 'allowRecursiveGroup' && !opts.allowMultiFollower ? 'disabled' : ''} />
+      .map((key) => {
+        const isIndented =
+          key === 'allowRecursiveGroup' ||
+          key === 'allowGroupCapture' ||
+          key === 'allowFollowerFriendlyCapture';
+
+        const isDisabled =
+          (key === 'allowRecursiveGroup' && isMultiSubDisabled) ||
+          ((key === 'allowGroupCapture' || key === 'allowFollowerFriendlyCapture') &&
+            isCaptureSubDisabled);
+
+        return `
+        <label class="option-item ${isIndented ? 'is-indented' : ''} ${isDisabled ? 'is-disabled' : ''}">
+          <input type="checkbox" data-opt="${key}" ${opts[key] ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} />
           <span>${TRAILER_OPTION_LABELS[key]}</span>
-        </label>`,
-      )
+        </label>`;
+      })
       .join('');
 
     return `
       <div class="options-panel">
         <h2>Опции прицепа</h2>
         ${items}
+        <button type="button" class="btn btn-secondary btn-sm btn-block reset-options-btn" style="margin-top: 0.6rem;">↺ Сбросить опции</button>
       </div>`;
   }
 
@@ -511,6 +525,10 @@ export class ChessBoardView {
         if (key === 'allowMultiFollower' && !input.checked) {
           change.allowRecursiveGroup = false;
         }
+        if (key === 'allowFollowerCaptureWithoutLeadingCapture' && !input.checked) {
+          change.allowGroupCapture = false;
+          change.allowFollowerFriendlyCapture = false;
+        }
         this.game.setTrailerOptions(change);
         if (this.mode === 'online' && this.net.isConnected()) {
           this.net.sendMessage({ type: 'CHANGE_OPTIONS', options: change });
@@ -520,6 +538,17 @@ export class ChessBoardView {
         this.refreshLegalTargets();
         this.render();
       });
+    });
+
+    this.optionsSlotEl.querySelector('.reset-options-btn')?.addEventListener('click', () => {
+      this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
+      if (this.mode === 'online' && this.net.isConnected()) {
+        this.net.sendMessage({ type: 'CHANGE_OPTIONS', options: { ...DEFAULT_TRAILER_OPTIONS } });
+      }
+      this.savePersistedState();
+      this.refreshOptionsPanel();
+      this.refreshLegalTargets();
+      this.render();
     });
   }
 
@@ -585,6 +614,12 @@ export class ChessBoardView {
   }
 
   private renderHint(): void {
+    const result = this.game.getResult();
+    if (result.status !== 'ongoing') {
+      this.hintEl.textContent = '';
+      return;
+    }
+
     if (this.mode === 'online') {
       if (!this.net.isConnected()) {
         this.hintEl.textContent = 'Ожидание подключения соперника по сети...';
@@ -788,34 +823,71 @@ export class ChessBoardView {
   }
 
   private async attemptMove(from: Square, to: Square): Promise<void> {
-    const needsPromotion = this.needsPromotion(from, to);
-    const context =
-      this.followerSquares.size > 0 ? { followers: [...this.followerSquares] } : undefined;
+    const promotingPawns: Array<{ from: Square; to: Square; isLeading: boolean }> = [];
+    const turn = this.game.getTurn();
 
-    if (needsPromotion) {
-      const promotion = await this.showPromotionDialog(this.game.getTurn());
-      if (!promotion) {
-        this.clearSelection();
-        return;
+    const leadingPiece = this.game.getPiece(from);
+    if (leadingPiece && leadingPiece.type === 'p') {
+      const lastRank = leadingPiece.color === 'w' ? '8' : '1';
+      if (to[1] === lastRank) {
+        promotingPawns.push({ from, to, isLeading: true });
       }
-      this.executeMove(from, to, promotion, context);
-    } else {
-      this.executeMove(from, to, undefined, context);
     }
-  }
 
-  private needsPromotion(from: Square, to: Square): boolean {
+    const { df, dr } = getDelta(from, to);
+    for (const fSq of this.followerSquares) {
+      const fPiece = this.game.getPiece(fSq);
+      if (fPiece && fPiece.type === 'p') {
+        const fTo = addDelta(fSq, df, dr);
+        if (fTo !== null) {
+          const lastRank = fPiece.color === 'w' ? '8' : '1';
+          if (fTo[1] === lastRank) {
+            promotingPawns.push({ from: fSq, to: fTo, isLeading: false });
+          }
+        }
+      }
+    }
+
+    let leadingPromotion: PieceType | undefined = undefined;
+    const followerPromotions: Partial<Record<Square, PieceType>> = {};
+
+    if (promotingPawns.length > 0) {
+      for (const p of promotingPawns) {
+        const label = p.isLeading
+          ? `Превращение ведущей пешки (${p.from} → ${p.to})`
+          : `Превращение ведомой пешки (${p.from} → ${p.to})`;
+
+        const choice = await this.showPromotionDialog(turn, label);
+        if (!choice) {
+          this.clearSelection();
+          return;
+        }
+
+        if (p.isLeading) {
+          leadingPromotion = choice;
+        } else {
+          followerPromotions[p.from] = choice;
+        }
+      }
+    }
+
     const context =
-      this.followerSquares.size > 0 ? { followers: [...this.followerSquares] } : undefined;
-    const moves = this.game.getLegalMoves(from, context);
-    return moves.some((m) => m.to === to && m.promotion !== undefined);
+      this.followerSquares.size > 0
+        ? {
+            followers: [...this.followerSquares],
+            followerPromotions:
+              Object.keys(followerPromotions).length > 0 ? followerPromotions : undefined,
+          }
+        : undefined;
+
+    this.executeMove(from, to, leadingPromotion, context);
   }
 
   private executeMove(
     from: Square,
     to: Square,
     promotion?: PieceType,
-    context?: { followers: Square[] },
+    context?: { followers: Square[]; followerPromotions?: Partial<Record<Square, PieceType>> },
   ): void {
     const result = this.game.tryMove(from, to, promotion, context);
     this.leadingSquare = null;
@@ -987,8 +1059,11 @@ export class ChessBoardView {
       .forEach((cell) => cell.classList.remove('drag-over'));
   }
 
-  private showPromotionDialog(color: Color): Promise<PieceType | null> {
+  private showPromotionDialog(color: Color, titleText = 'Превращение пешки'): Promise<PieceType | null> {
     return new Promise((resolve) => {
+      const titleEl = this.promotionEl.querySelector('p');
+      if (titleEl) titleEl.textContent = titleText;
+
       const options = this.promotionEl.querySelector('.promotion-options')!;
       options.innerHTML = '';
       this.promotionEl.classList.remove('hidden');

@@ -284,6 +284,19 @@ body {
   cursor: pointer;
 }
 
+.option-item.is-indented {
+  margin-left: 1.1rem;
+}
+
+.option-item.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.option-item.is-disabled input {
+  cursor: not-allowed;
+}
+
 .option-item input {
   margin-top: 0.15rem;
   flex-shrink: 0;
@@ -331,7 +344,7 @@ body {
 }
 
 .room-code-input {
-  width: 100px;
+  width: 145px;
   flex: 0 0 100px;
   background: var(--bg);
   border: 1px solid var(--surface-alt);
