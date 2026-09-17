@@ -1,0 +1,123 @@
+.header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+.help-trigger-btn {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  border-radius: var(--radius);
+}
+
+/* Help Modal Overlay */
+.help-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.help-modal-overlay.hidden {
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.help-modal {
+  background: var(--surface);
+  border: 1px solid var(--surface-alt);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 580px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  animation: helpModalPop 0.25s ease-out;
+}
+
+@keyframes helpModalPop {
+  from {
+    transform: scale(0.94);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.help-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.help-modal-header h2 {
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.help-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.3rem;
+  transition: color 0.15s;
+}
+
+.help-close-btn:hover {
+  color: var(--accent);
+}
+
+.help-modal-body {
+  padding: 1rem 1.1rem;
+  overflow-y: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.help-section h3 {
+  font-size: 0.88rem;
+  color: #f2cc8f;
+  margin-bottom: 0.35rem;
+}
+
+.help-section p {
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+
+.help-options-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.help-options-list li {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.4rem 0.6rem;
+  border-radius: calc(var(--radius) - 2px);
+  border-left: 3px solid var(--accent);
+}

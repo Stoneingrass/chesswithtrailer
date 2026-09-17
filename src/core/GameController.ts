@@ -1,5 +1,5 @@
 import type { MoveContext, TrailerOptions } from './trailer/types';
-import type { TrailerChessRules } from './rules/TrailerChessRules';
+import { isTrailerRules } from './rules/TrailerCapabilities';
 import type { RuleSet } from './rules/RuleSet';
 import type {
   Color,
@@ -138,36 +138,36 @@ export class GameController {
 
   /** Доступно только для «шахмат с прицепом». */
   getProtectors(square: Square): Square[] {
-    if ('getProtectors' in this.rules && typeof (this.rules as any).getProtectors === 'function') {
-      return (this.rules as TrailerChessRules).getProtectors(square);
+    if (isTrailerRules(this.rules)) {
+      return this.rules.getProtectors(square);
     }
     return [];
   }
 
   getDirectProtectors(square: Square): Square[] {
-    if ('getDirectProtectors' in this.rules && typeof (this.rules as any).getDirectProtectors === 'function') {
-      return (this.rules as TrailerChessRules).getDirectProtectors(square);
+    if (isTrailerRules(this.rules)) {
+      return this.rules.getDirectProtectors(square);
     }
     return [];
   }
 
   getCastlingAssociatedSquares(square: Square): Square[] {
-    if ('getCastlingAssociatedSquares' in this.rules && typeof (this.rules as any).getCastlingAssociatedSquares === 'function') {
-      return (this.rules as TrailerChessRules).getCastlingAssociatedSquares(square);
+    if (isTrailerRules(this.rules)) {
+      return this.rules.getCastlingAssociatedSquares(square);
     }
     return [];
   }
 
   getTrailerOptions(): TrailerOptions | null {
-    if ('getTrailerOptions' in this.rules) {
-      return (this.rules as TrailerChessRules).getTrailerOptions();
+    if (isTrailerRules(this.rules)) {
+      return this.rules.getTrailerOptions();
     }
     return null;
   }
 
   setTrailerOptions(partial: Partial<TrailerOptions>): void {
-    if ('setTrailerOptions' in this.rules) {
-      (this.rules as TrailerChessRules).setTrailerOptions(partial);
+    if (isTrailerRules(this.rules)) {
+      this.rules.setTrailerOptions(partial);
     }
   }
 

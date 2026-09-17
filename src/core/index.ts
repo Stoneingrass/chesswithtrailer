@@ -4,5 +4,8 @@ export type { MoveContext, TrailerOptions } from './trailer/types';
 export { DEFAULT_TRAILER_OPTIONS, loadTrailerOptions, saveTrailerOptions } from './trailer/types';
 export { StandardChessRules } from './rules/StandardChessRules';
 export { TrailerChessRules } from './rules/TrailerChessRules';
+export type { TrailerCapabilities } from './rules/TrailerCapabilities';
+export { isTrailerRules } from './rules/TrailerCapabilities';
 export { GameController } from './GameController';
 export { addDelta, getDelta } from './boardUtils';
+

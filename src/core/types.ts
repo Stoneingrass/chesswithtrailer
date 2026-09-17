@@ -52,6 +52,13 @@ export interface GameSnapshot {
 
 
 
+export interface MoveContext {
+  /** Клетки ведомых фигур (до хода) */
+  followers?: Square[];
+  /** Выбранные превращения ведомых пешек { [followerFromSquare]: PieceType } */
+  followerPromotions?: Partial<Record<Square, PieceType>>;
+}
+
 export type MoveAttemptResult =
   | { ok: true; move: Move; snapshot: GameSnapshot }
   | { ok: false; reason: string };
@@ -63,3 +70,4 @@ export type GameEvent =
   | { type: 'undo'; snapshot: GameSnapshot; count: number };
 
 export type GameEventListener = (event: GameEvent) => void;
+

@@ -1,28 +1,51 @@
-import { Chess, type Square as ChessJsSquare } from 'chess.js';
-import { addDelta, getDelta, getPathSquares, ALL_SQUARES } from '../boardUtils';
+import { Chess } from 'chess.js';
+import { ALL_SQUARES } from '../boardUtils';
 import type { MoveContext, TrailerOptions } from '../trailer/types';
 import { loadTrailerOptions, saveTrailerOptions } from '../trailer/types';
 import { StandardChessRules } from './StandardChessRules';
+import type { TrailerCapabilities } from './TrailerCapabilities';
 import type {
   Move,
   MoveAttemptResult,
   Piece,
-  PieceType,
   Square,
 } from '../types';
 
-interface PlannedFollower {
-  from: Square;
-  to: Square | null;
-  piece: Piece;
-  promotion?: PieceType;
-}
+import {
+  getDirectProtectors,
+  getProtectors,
+} from '../trailer/protectors';
+
+import {
+  getCastlingAssociatedSquares,
+  getCastlingDetails,
+  type CastlingDetails,
+} from '../trailer/castling';
+
+import { getPseudoLegalMoves } from '../trailer/pseudoLegal';
+
+import {
+  resolveFollowerGroup,
+  validateTrailerMove,
+} from '../trailer/validateTrailerMove';
+
+import {
+  applyFullMove,
+  finalizeMoveState,
+  formatMoveNotation,
+  generateSanForMove,
+} from '../trailer/applyTrailerMove';
+
+import {
+  isKingAttacked,
+  isTrailerMoveKingSafe,
+} from '../trailer/kingSafety';
 
 /**
  * «Шахматы с прицепом»: ведущая фигура ходит по стандартным правилам,
  * ведомые (защитники ведущей) смещаются на тот же вектор.
  */
-export class TrailerChessRules extends StandardChessRules {
+export class TrailerChessRules extends StandardChessRules implements TrailerCapabilities {
   override readonly name = 'Шахматы с "прицепом"';
 
   private options: TrailerOptions;
@@ -51,218 +74,30 @@ export class TrailerChessRules extends StandardChessRules {
 
   /** Фигуры своего цвета, непосредственно защищающие (атакующие) клетку. */
   getDirectProtectors(square: Square): Square[] {
-    const color = this.getTurn();
-    const protectors: Square[] = [];
-
-    for (const sq of ALL_SQUARES) {
-      const piece = this.getPiece(sq);
-      if (!piece || piece.color !== color || sq === square) continue;
-      if (this.pieceAttacksSquare(sq, square)) {
-        protectors.push(sq);
-      }
-    }
-    return protectors;
+    return getDirectProtectors(square, this.getTurn(), (sq) => this.getPiece(sq));
   }
 
   /** Фигуры своего цвета, защищающие клетку (включая рекурсивные цепочки, если включена опция). */
   getProtectors(square: Square): Square[] {
-    const direct = this.getDirectProtectors(square);
-    if (!this.options.allowRecursiveGroup || !this.options.allowMultiFollower) {
-      return direct;
-    }
-
-    const set = new Set<Square>(direct);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const follower of [...set]) {
-        for (const protector of this.getDirectProtectors(follower)) {
-          if (protector !== square && !set.has(protector)) {
-            const p = this.getPiece(protector);
-            if (p?.type === 'k' && this.options.kingCannotBeFollower) continue;
-            set.add(protector);
-            changed = true;
-          }
-        }
-      }
-    }
-    return [...set];
+    return getProtectors(square, this.options, this.getTurn(), (sq) => this.getPiece(sq));
   }
 
   /** Возвращает связанные фигуры для рокировки (король <-> ладья) */
   public getCastlingAssociatedSquares(square: Square): Square[] {
-    const piece = this.getPiece(square);
-    if (!piece) return [];
-    const turn = piece.color;
-    const rank = turn === 'w' ? '1' : '8';
-    const kingSq = `e${rank}` as Square;
-    const kRookSq = `h${rank}` as Square;
-    const qRookSq = `a${rank}` as Square;
-
-    const kingPiece = this.getPiece(kingSq);
-    if (!kingPiece || kingPiece.type !== 'k' || kingPiece.color !== turn) return [];
-
-    const kingMoves = this.chess.moves({ square: kingSq as ChessJsSquare, verbose: true });
-    const hasKingside = kingMoves.some((m) => m.flags.includes('k'));
-    const hasQueenside = kingMoves.some((m) => m.flags.includes('q'));
-
-    const associated: Square[] = [];
-    if (square === kingSq) {
-      if (hasKingside && this.getPiece(kRookSq)?.type === 'r') associated.push(kRookSq);
-      if (hasQueenside && this.getPiece(qRookSq)?.type === 'r') associated.push(qRookSq);
-    } else if (square === kRookSq && hasKingside) {
-      associated.push(kingSq);
-    } else if (square === qRookSq && hasQueenside) {
-      associated.push(kingSq);
-    }
-    return associated;
+    return getCastlingAssociatedSquares(square, this.chess, (sq) => this.getPiece(sq));
   }
 
   public getCastlingDetails(
     from: Square,
     to: Square,
     piece?: Piece,
-  ): {
-    kingFrom: Square;
-    kingTo: Square;
-    rookFrom: Square;
-    rookTo: Square;
-    deltaKing: { df: number; dr: number };
-    deltaRook: { df: number; dr: number };
-  } | null {
-    const p = piece ?? this.getPiece(from);
-    if (!p) return null;
-    const turn = p.color;
-    const rank = turn === 'w' ? '1' : '8';
-    const kingSq = `e${rank}` as Square;
-    const kRookSq = `h${rank}` as Square;
-    const qRookSq = `a${rank}` as Square;
-
-    let isKingside = false;
-    let isQueenside = false;
-
-    if (p.type === 'k' && from === kingSq) {
-      if (to === `g${rank}`) isKingside = true;
-      if (to === `c${rank}`) isQueenside = true;
-    } else if (p.type === 'r') {
-      if (from === kRookSq && to === `f${rank}`) isKingside = true;
-      if (from === qRookSq && to === `d${rank}`) isQueenside = true;
-    }
-
-    if (!isKingside && !isQueenside) return null;
-
-    const kingFrom = kingSq;
-    const kingTo = (isKingside ? `g${rank}` : `c${rank}`) as Square;
-    const rookFrom = (isKingside ? kRookSq : qRookSq) as Square;
-    const rookTo = (isKingside ? `f${rank}` : `d${rank}`) as Square;
-
-    return {
-      kingFrom,
-      kingTo,
-      rookFrom,
-      rookTo,
-      deltaKing: getDelta(kingFrom, kingTo),
-      deltaRook: getDelta(rookFrom, rookTo),
-    };
+  ): CastlingDetails | null {
+    return getCastlingDetails(from, to, piece, (sq) => this.getPiece(sq));
   }
 
   /** Псевдо-легальные ходы фигуры (без учета шаха собственному королю до сдвига прицепа). */
   public getPseudoLegalMoves(square: Square): Move[] {
-    const leadingPiece = this.getPiece(square);
-    if (!leadingPiece || leadingPiece.color !== this.getTurn()) return [];
-
-    if (leadingPiece.type === 'k') {
-      const moves: Move[] = [];
-      const rStr = square[1];
-      const r = parseInt(rStr, 10);
-
-      for (let df = -1; df <= 1; df++) {
-        for (let dr = -1; dr <= 1; dr++) {
-          if (df === 0 && dr === 0) continue;
-          const target = addDelta(square, df, dr);
-          if (!target) continue;
-          const occ = this.getPiece(target);
-          if (!occ || occ.color !== leadingPiece.color) {
-            moves.push({ from: square, to: target });
-          }
-        }
-      }
-
-      // Рокировка (если есть права и свободные поля)
-      if (square === `e${r}`) {
-        const movesRaw = this.chess.moves({ square: square as ChessJsSquare, verbose: true });
-        for (const m of movesRaw) {
-          if (m.flags.includes('k') || m.flags.includes('q')) {
-            moves.push({
-              from: square,
-              to: m.to as Square,
-              isCastle: true,
-            });
-          }
-        }
-      }
-      return moves;
-    }
-
-    if (leadingPiece.type === 'r') {
-      const moves: Move[] = [];
-      const turn = leadingPiece.color;
-      const rank = turn === 'w' ? '1' : '8';
-      const kingSq = `e${rank}` as Square;
-      const kRookSq = `h${rank}` as Square;
-      const qRookSq = `a${rank}` as Square;
-
-      if (square === kRookSq || square === qRookSq) {
-        const kingMoves = this.chess.moves({ square: kingSq as ChessJsSquare, verbose: true });
-        if (square === kRookSq && kingMoves.some((m) => m.flags.includes('k'))) {
-          moves.push({ from: square, to: `f${rank}` as Square, isCastle: true });
-        } else if (square === qRookSq && kingMoves.some((m) => m.flags.includes('q'))) {
-          moves.push({ from: square, to: `d${rank}` as Square, isCastle: true });
-        }
-      }
-
-      const tempChess = new Chess(this.chess.fen());
-      if (kingSq && this.getPiece(kingSq)?.type === 'k') {
-        tempChess.remove(kingSq as ChessJsSquare);
-      }
-      const raw = tempChess.moves({ square: square as ChessJsSquare, verbose: true });
-
-      for (const m of raw) {
-        moves.push({
-          from: m.from as Square,
-          to: m.to as Square,
-          promotion: m.promotion ? (m.promotion as PieceType) : undefined,
-          san: m.san,
-          isEnPassant: m.flags.includes('e'),
-          isCastle: m.flags.includes('k') || m.flags.includes('q'),
-        });
-      }
-      return moves;
-    }
-
-    // Для остальных фигур: временно убираем короля активного цвета во временном экземпляре Chess,
-    // чтобы chess.js не отфильтровал псевдо-легальные ходы из-за шаха и не сбросил рокировочные права FEN
-    const turn = leadingPiece.color;
-    const tempChess = new Chess(this.chess.fen());
-    const kingSq = ALL_SQUARES.find((sq) => {
-      const p = this.getPiece(sq);
-      return p?.type === 'k' && p.color === turn;
-    });
-
-    if (kingSq) {
-      tempChess.remove(kingSq as ChessJsSquare);
-    }
-
-    const raw = tempChess.moves({ square: square as ChessJsSquare, verbose: true });
-
-    return raw.map((m) => ({
-      from: m.from as Square,
-      to: m.to as Square,
-      promotion: m.promotion ? (m.promotion as PieceType) : undefined,
-      san: m.san,
-      isEnPassant: m.flags.includes('e'),
-      isCastle: m.flags.includes('k') || m.flags.includes('q'),
-    }));
+    return getPseudoLegalMoves(square, this.getTurn(), this.chess, (sq) => this.getPiece(sq));
   }
 
   override getLegalMoves(square?: Square, context?: MoveContext): Move[] {
@@ -280,12 +115,27 @@ export class TrailerChessRules extends StandardChessRules {
 
     const candidateMoves = this.getPseudoLegalMoves(square);
     const followers = context?.followers ?? [];
-    const group = this.resolveFollowerGroup(square, followers);
+    const group = resolveFollowerGroup(square, followers, this.options.allowMultiFollower);
 
     return candidateMoves.filter((m) => {
-      const validation = this.validateTrailerMove(m.from, m.to, group, m.promotion, context);
+      const validation = validateTrailerMove(
+        m.from,
+        m.to,
+        group,
+        this.options,
+        (sq) => this.getPiece(sq),
+        m.promotion,
+        context,
+      );
       if (!validation.ok) return false;
-      return this.isTrailerMoveKingSafe(m.from, m.to, m.promotion, validation.followers);
+      return isTrailerMoveKingSafe(
+        m.from,
+        m.to,
+        m.promotion,
+        validation.followers,
+        this.chess,
+        (sq) => this.getPiece(sq),
+      );
     });
   }
 
@@ -309,8 +159,16 @@ export class TrailerChessRules extends StandardChessRules {
     }
 
     const followers = context?.followers ?? [];
-    const group = this.resolveFollowerGroup(from, followers);
-    const validation = this.validateTrailerMove(from, to, group, promotion, context);
+    const group = resolveFollowerGroup(from, followers, this.options.allowMultiFollower);
+    const validation = validateTrailerMove(
+      from,
+      to,
+      group,
+      this.options,
+      (sq) => this.getPiece(sq),
+      promotion,
+      context,
+    );
     if (!validation.ok) {
       return { ok: false, reason: validation.reason };
     }
@@ -319,19 +177,38 @@ export class TrailerChessRules extends StandardChessRules {
     const plannedFollowers = validation.followers;
     const fenBeforeMove = this.chess.fen();
 
-    this.applyFullMove(from, to, leadingPromotion, plannedFollowers, leadingPiece);
+    applyFullMove(
+      from,
+      to,
+      leadingPromotion,
+      plannedFollowers,
+      leadingPiece,
+      this.chess,
+      (sq) => this.getPiece(sq),
+    );
 
-    if (this.isKingAttacked(leadingPiece.color)) {
+    if (isKingAttacked(leadingPiece.color, this.chess, (sq) => this.getPiece(sq))) {
       this.chess = new Chess(fenBeforeMove);
       return { ok: false, reason: 'После перемещения группы король остаётся под шахом' };
     }
 
-    const san = this.formatMoveNotation(
-      this.generateSanForMove(from, to, leadingPromotion, leadingPiece, pseudoMatch),
+    const san = formatMoveNotation(
+      generateSanForMove(from, to, leadingPromotion, leadingPiece, pseudoMatch, (sq) =>
+        this.getPiece(sq),
+      ),
       plannedFollowers,
     );
 
-    this.finalizeMoveState(fenBeforeMove, from, to, leadingPromotion, leadingPiece, plannedFollowers);
+    this.chess = finalizeMoveState(
+      fenBeforeMove,
+      from,
+      to,
+      leadingPromotion,
+      leadingPiece,
+      plannedFollowers,
+      this.chess,
+      (sq) => this.getPiece(sq),
+    );
 
     const recorded: Move = {
       from: from,
@@ -352,390 +229,5 @@ export class TrailerChessRules extends StandardChessRules {
     this.onMoveApplied(recorded);
 
     return { ok: true, move: recorded, snapshot: this.getSnapshot() };
-  }
-
-  private applyFullMove(
-    from: Square,
-    to: Square,
-    promotion: PieceType | undefined,
-    followers: PlannedFollower[],
-    leadingPiece: Piece,
-  ): void {
-    const castleDetails = this.getCastlingDetails(from, to, leadingPiece);
-    if (castleDetails) {
-      this.chess.remove(castleDetails.kingFrom as ChessJsSquare);
-      this.chess.remove(castleDetails.rookFrom as ChessJsSquare);
-      this.chess.put({ type: 'k', color: leadingPiece.color }, castleDetails.kingTo as ChessJsSquare);
-      this.chess.put({ type: 'r', color: leadingPiece.color }, castleDetails.rookTo as ChessJsSquare);
-      this.applyFollowerShifts(followers);
-      return;
-    }
-
-    this.chess.remove(from as ChessJsSquare);
-
-    if (leadingPiece.type === 'p' && from[0] !== to[0] && !this.getPiece(to)) {
-      const epCapturedSq = `${to[0]}${from[1]}` as Square;
-      this.chess.remove(epCapturedSq as ChessJsSquare);
-    }
-
-    const leadingType = leadingPiece.type === 'p' && promotion ? promotion : leadingPiece.type;
-
-    this.chess.put(
-      { type: leadingType, color: leadingPiece.color },
-      to as ChessJsSquare,
-    );
-
-    this.applyFollowerShifts(followers);
-  }
-
-  private generateSanForMove(
-    from: Square,
-    to: Square,
-    promotion: PieceType | undefined,
-    leadingPiece: Piece,
-    match: Move,
-  ): string {
-    const castleDetails = this.getCastlingDetails(from, to, leadingPiece);
-    if (castleDetails) {
-      return castleDetails.kingTo[0] === 'c' ? 'O-O-O' : 'O-O';
-    }
-    if (match.san) return match.san;
-    const pieceChar = leadingPiece.type === 'p' ? '' : leadingPiece.type.toUpperCase();
-    const promoStr = promotion ? `=${promotion.toUpperCase()}` : '';
-    return `${pieceChar}${from}-${to}${promoStr}`;
-  }
-
-  private finalizeMoveState(
-    fenBefore: string,
-    from: Square,
-    to: Square,
-    _promotion: PieceType | undefined,
-    leadingPiece: Piece,
-    followers: PlannedFollower[],
-  ): void {
-    const currentFen = this.chess.fen();
-    const parts = fenBefore.split(' ');
-    const boardFen = currentFen.split(' ')[0];
-    const turn = leadingPiece.color;
-    const nextTurn = turn === 'w' ? 'b' : 'w';
-    let castling = parts[2] || '-';
-    let ep = '-';
-    let halfmove = parseInt(parts[4] || '0', 10);
-    let fullmove = parseInt(parts[5] || '1', 10);
-
-    if (turn === 'b') fullmove++;
-
-    const castleDetails = this.getCastlingDetails(from, to, leadingPiece);
-
-    const isCapture =
-      (!castleDetails && this.getPiece(to) !== null) ||
-      followers.some((f) => f.to !== null && this.getPiece(f.to) !== null);
-
-    if (leadingPiece.type === 'p' || isCapture) {
-      halfmove = 0;
-    } else {
-      halfmove++;
-    }
-
-    const { dr } = getDelta(from, to);
-    if (leadingPiece.type === 'p' && Math.abs(dr) === 2) {
-      const epRank = turn === 'w' ? '3' : '6';
-      ep = `${from[0]}${epRank}`;
-    }
-
-    if (castling !== '-') {
-      const movedOrCaptured = new Set<Square>([
-        from,
-        to,
-        ...(castleDetails ? [castleDetails.kingFrom, castleDetails.rookFrom] : []),
-        ...followers.map((f) => f.from),
-        ...followers
-          .filter((f): f is PlannedFollower & { to: Square } => f.to !== null)
-          .map((f) => f.to),
-      ]);
-      if (movedOrCaptured.has('e1') || (leadingPiece.type === 'k' && turn === 'w')) {
-        castling = castling.replace(/K|Q/g, '');
-      }
-      if (movedOrCaptured.has('e8') || (leadingPiece.type === 'k' && turn === 'b')) {
-        castling = castling.replace(/k|q/g, '');
-      }
-      if (movedOrCaptured.has('h1')) castling = castling.replace('K', '');
-      if (movedOrCaptured.has('a1')) castling = castling.replace('Q', '');
-      if (movedOrCaptured.has('h8')) castling = castling.replace('k', '');
-      if (movedOrCaptured.has('a8')) castling = castling.replace('q', '');
-      if (!castling) castling = '-';
-    }
-
-    const nextFen = `${boardFen} ${nextTurn} ${castling} ${ep} ${halfmove} ${fullmove}`;
-    this.chess = new Chess(nextFen);
-  }
-
-  private pieceAttacksSquare(from: Square, target: Square): boolean {
-    const piece = this.getPiece(from);
-    if (!piece || from === target) return false;
-
-    const { df, dr } = getDelta(from, target);
-    const absFile = Math.abs(df);
-    const absRank = Math.abs(dr);
-
-    switch (piece.type) {
-      case 'p':
-        return absFile === 1 && dr === (piece.color === 'w' ? 1 : -1);
-      case 'n':
-        return (absFile === 1 && absRank === 2) || (absFile === 2 && absRank === 1);
-      case 'k':
-        return Math.max(absFile, absRank) === 1;
-      case 'b':
-        return absFile === absRank && this.pathIsClear(from, target);
-      case 'r':
-        return (df === 0 || dr === 0) && this.pathIsClear(from, target);
-      case 'q':
-        return (df === 0 || dr === 0 || absFile === absRank) && this.pathIsClear(from, target);
-    }
-  }
-
-  private pathIsClear(from: Square, to: Square): boolean {
-    return getPathSquares(from, to).every((square) => !this.getPiece(square));
-  }
-
-  private resolveFollowerGroup(leading: Square, selected: Square[]): Square[] {
-    let group = new Set<Square>(selected.filter((sq) => sq !== leading));
-
-    if (!this.options.allowMultiFollower && group.size > 1) {
-      const first = selected[0];
-      group = new Set(first ? [first] : []);
-    }
-
-    return [...group];
-  }
-
-  private validateTrailerMove(
-    leadingFrom: Square,
-    leadingTo: Square,
-    followers: Square[],
-    promotion?: PieceType,
-    context?: MoveContext,
-  ): { ok: true; followers: PlannedFollower[] } | { ok: false; reason: string } {
-    const leadingPiece = this.getPiece(leadingFrom);
-    if (!leadingPiece) {
-      return { ok: false, reason: 'Нет ведущей фигуры' };
-    }
-
-    const castleDetails = this.getCastlingDetails(leadingFrom, leadingTo, leadingPiece);
-
-    for (const sq of followers) {
-      if (sq === leadingFrom) {
-        return { ok: false, reason: 'Ведомая не может быть ведущей фигурой' };
-      }
-      if (castleDetails && (sq === castleDetails.kingFrom || sq === castleDetails.rookFrom)) {
-        return { ok: false, reason: 'Король и ладья при рокировке являются ведущими фигурами' };
-      }
-      const p = this.getPiece(sq);
-      if (!p || p.color !== leadingPiece.color) {
-        return { ok: false, reason: 'Ведомая должна быть своей фигурой' };
-      }
-      if (p.type === 'k' && this.options.kingCannotBeFollower) {
-        return { ok: false, reason: 'Король не может быть ведомой фигурой' };
-      }
-      const protectsLeading = this.pieceAttacksSquare(sq, leadingFrom);
-      const protectsCastleAssoc = castleDetails
-        ? (this.pieceAttacksSquare(sq, castleDetails.kingFrom) || this.pieceAttacksSquare(sq, castleDetails.rookFrom))
-        : false;
-      const protectsOtherFollower = followers.some(
-        (other) => other !== sq && this.pieceAttacksSquare(sq, other),
-      );
-
-      if (!protectsLeading && !protectsCastleAssoc && !protectsOtherFollower) {
-        return { ok: false, reason: 'Ведомая должна защищать ведущую фигуру или другую ведомую' };
-      }
-    }
-
-    // Проверка целостности цепи защиты до ведущей фигуры
-    const rootSquares = castleDetails ? [castleDetails.kingFrom, castleDetails.rookFrom] : [leadingFrom];
-    const connected = new Set<Square>(rootSquares);
-    let added = true;
-    while (added) {
-      added = false;
-      for (const sq of followers) {
-        if (!connected.has(sq)) {
-          const attacksConnected = [...connected].some((target) =>
-            this.pieceAttacksSquare(sq, target),
-          );
-          if (attacksConnected) {
-            connected.add(sq);
-            added = true;
-          }
-        }
-      }
-    }
-    for (const sq of followers) {
-      if (!connected.has(sq)) {
-        return { ok: false, reason: 'Ведомая фигура должна быть связана цепью защиты с ведущей' };
-      }
-    }
-
-    const { df: defaultDf, dr: defaultDr } = getDelta(leadingFrom, leadingTo);
-    const planned: PlannedFollower[] = [];
-    const destinations = new Map<Square | 'off', Square>();
-
-    if (castleDetails) {
-      destinations.set(castleDetails.kingTo, castleDetails.kingFrom);
-      destinations.set(castleDetails.rookTo, castleDetails.rookFrom);
-    } else {
-      destinations.set(leadingTo, leadingFrom);
-    }
-
-    const movingFrom = new Set<Square>(castleDetails ? [castleDetails.kingFrom, castleDetails.rookFrom, ...followers] : [leadingFrom, ...followers]);
-
-    for (const from of followers) {
-      const piece = this.getPiece(from)!;
-
-      let followerDelta = { df: defaultDf, dr: defaultDr };
-      if (castleDetails) {
-        const protectsRookChain = this.pieceAttacksSquare(from, castleDetails.rookFrom);
-        const protectsKingChain = this.pieceAttacksSquare(from, castleDetails.kingFrom);
-        if (protectsRookChain && !protectsKingChain) {
-          followerDelta = castleDetails.deltaRook;
-        } else {
-          followerDelta = castleDetails.deltaKing;
-        }
-      }
-
-      const to = addDelta(from, followerDelta.df, followerDelta.dr);
-
-      if (to === null) {
-        if (!this.options.followerOffBoardRemoved) {
-          return { ok: false, reason: 'Ведомая фигура выходит за границы доски' };
-        }
-        planned.push({ from, to: null, piece });
-        continue;
-      }
-
-      if (destinations.has(to)) {
-        return { ok: false, reason: 'Две фигуры не могут занять одну клетку' };
-      }
-      destinations.set(to, from);
-
-      const occupant = this.getPiece(to);
-      if (occupant) {
-        if (occupant.color === piece.color) {
-          if (!movingFrom.has(to)) {
-            if (!this.options.allowFollowerFriendlyCapture || occupant.type === 'k') {
-              return { ok: false, reason: 'Ведомая не может сбить фигуру своего цвета' };
-            }
-          }
-        } else if (
-          !this.options.allowGroupCapture &&
-          !this.options.allowFollowerCaptureWithoutLeadingCapture
-        ) {
-          return { ok: false, reason: 'Ведомая не может брать без опции группового взятия' };
-        } else if (occupant.type === 'k') {
-          return { ok: false, reason: 'Ведомая не может брать короля' };
-        }
-      }
-
-      const pathOk = this.validateFollowerPath(from, to, leadingPiece.type, movingFrom, leadingTo);
-      if (!pathOk.ok) return pathOk;
-
-      let followerPromotion: PieceType | undefined = undefined;
-      if (piece.type === 'p' && to !== null) {
-        const lastRank = piece.color === 'w' ? '8' : '1';
-        if (to[1] === lastRank) {
-          followerPromotion = context?.followerPromotions?.[from] || promotion || 'q';
-        }
-      }
-
-      planned.push({ from, to, piece, promotion: followerPromotion });
-    }
-
-    return { ok: true, followers: planned };
-  }
-
-
-
-  private validateFollowerPath(
-    from: Square,
-    to: Square,
-    leadingType: PieceType,
-    movingFrom: Set<Square>,
-    leadingTo: Square,
-  ): { ok: true } | { ok: false; reason: string } {
-    const passThroughAllowed = this.options.allowPassThrough || leadingType === 'n';
-
-    if (passThroughAllowed) return { ok: true };
-
-    for (const sq of getPathSquares(from, to)) {
-      if (movingFrom.has(sq) || sq === leadingTo) continue;
-      if (this.getPiece(sq)) {
-        return { ok: false, reason: 'Путь ведомой фигуры заблокирован' };
-      }
-    }
-    return { ok: true };
-  }
-
-  private applyFollowerShifts(planned: PlannedFollower[]): void {
-    for (const { from } of planned) {
-      this.chess.remove(from as ChessJsSquare);
-    }
-
-    for (const { to, piece, promotion } of planned) {
-      if (to === null) continue;
-
-      const occupant = this.chess.get(to as ChessJsSquare);
-      if (occupant) {
-        this.chess.remove(to as ChessJsSquare);
-      }
-
-      const finalType = piece.type === 'p' && promotion ? promotion : piece.type;
-
-      this.chess.put(
-        { type: finalType as PieceType, color: piece.color },
-        to as ChessJsSquare,
-      );
-    }
-  }
-
-  private formatMoveNotation(san: string, followers: PlannedFollower[]): string {
-    if (followers.length === 0) return san;
-    const trailer = followers
-      .map((f) => {
-        const promoStr = f.piece.type === 'p' && f.promotion ? `=${f.promotion.toUpperCase()}` : '';
-        const sep = f.to ? '-' : 'x';
-        const target = f.to ?? '';
-        return `${this.pieceName(f.piece.type)}${f.from}${sep}${target}${promoStr}`;
-      })
-      .join(', ');
-    return `${san} + ${trailer}`;
-  }
-
-  private isKingAttacked(color: 'w' | 'b'): boolean {
-    const kingSquare = ALL_SQUARES.find((square) => {
-      const piece = this.getPiece(square);
-      return piece?.type === 'k' && piece.color === color;
-    });
-    if (!kingSquare) return true;
-    const attacker = color === 'w' ? 'b' : 'w';
-    return this.chess.isAttacked(kingSquare as ChessJsSquare, attacker);
-  }
-
-  private isTrailerMoveKingSafe(
-    from: Square,
-    to: Square,
-    promotion: PieceType | undefined,
-    followers: PlannedFollower[],
-  ): boolean {
-    const leadingPiece = this.getPiece(from);
-    if (!leadingPiece) return false;
-    const fenBeforeMove = this.chess.fen();
-    try {
-      this.applyFullMove(from, to, promotion, followers, leadingPiece);
-      return !this.isKingAttacked(leadingPiece.color);
-    } finally {
-      this.chess = new Chess(fenBeforeMove);
-    }
-  }
-
-  private pieceName(type: PieceType): string {
-    return ({ p: '', n: 'N', b: 'B', r: 'R', q: 'Q', k: 'K' } as const)[type];
   }
 }

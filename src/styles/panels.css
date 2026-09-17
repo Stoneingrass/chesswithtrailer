@@ -1,0 +1,352 @@
+.status-panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.65rem 0.85rem;
+  flex-shrink: 0;
+  min-height: 86px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.turn-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.turn-badge-img {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.selection-hint {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  min-height: 2.7em;
+}
+
+.options-panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.8rem 0.9rem;
+}
+
+.options-panel h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.option-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+  cursor: pointer;
+}
+
+.option-item.is-indented {
+  margin-left: 1.1rem;
+}
+
+.option-item.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.option-item.is-disabled input {
+  cursor: not-allowed;
+}
+
+.option-item input {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.game-status {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.game-status.game-over {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.history-panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.65rem 0.85rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.history-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.history-panel::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+.history-panel::-webkit-scrollbar-thumb {
+  background: var(--surface-alt);
+  border-radius: 4px;
+}
+
+.history-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+.history-panel h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.move-history {
+  list-style: none;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 0.82rem;
+}
+
+.move-history li {
+  padding: 0.2rem 0.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.move-num {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  min-width: 1.8rem;
+  user-select: none;
+}
+
+.move-san {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.move-san:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.move-san.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(233, 69, 96, 0.4);
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.history-navigation {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.history-navigation .btn {
+  padding: 0.4rem;
+}
+
+.timeline-status {
+  display: none;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(233, 69, 96, 0.2);
+    border-color: transparent;
+  }
+  50% {
+    box-shadow: 0 0 10px 3px rgba(233, 69, 96, 0.75);
+    border-color: var(--accent);
+    background: #2a5a8a;
+  }
+}
+
+.btn.pulse {
+  animation: pulse-glow 1.6s infinite ease-in-out;
+}
+
+/* Game Action Buttons (Online Mode) */
+.game-action-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.game-action-buttons.hidden-action-block {
+  display: none !important;
+}
+
+/* Offer Proposal Bar (25% Accept | 50% Proposal Label | 25% Reject) */
+.offer-proposal-bar {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.offer-proposal-bar.hidden-action-block {
+  display: none !important;
+}
+
+.proposal-label-box {
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #fef08a;
+  padding: 0.3rem 0.2rem;
+  user-select: none;
+}
+
+.btn-proposal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.4rem 0.15rem;
+  font-size: 0.73rem;
+  font-weight: 600;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.btn-proposal.btn-accept {
+  border: 1px solid #22c55e;
+  background: rgba(34, 197, 94, 0.22);
+  color: #86efac;
+}
+
+.btn-proposal.btn-accept:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.38);
+  border-color: #4ade80;
+}
+
+.btn-proposal.btn-reject {
+  border: 1px solid #ef4444;
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+
+.btn-proposal.btn-reject:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.38);
+  border-color: #f87171;
+}
+
+.btn-action {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.4rem 0.15rem;
+  font-size: 0.73rem;
+  font-weight: 500;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.btn-action:hover:not(:disabled) {
+  background: var(--surface-alt);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-action .action-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.btn-action.is-waiting {
+  border-color: #a855f7;
+  background: rgba(168, 85, 247, 0.18);
+  color: #e9d5ff;
+  animation: pulse-waiting 1.4s infinite ease-in-out;
+}
+
+.btn-action.is-offered {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.22);
+  color: #fef08a;
+  animation: pulse-offer 1.2s infinite ease-in-out;
+}
+
+.btn-action.is-confirming {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.28);
+  color: #fca5a5;
+  animation: pulse-offer 1.2s infinite ease-in-out;
+}
+
+@keyframes pulse-waiting {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes pulse-offer {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.15);
+  }
+}
+
+.button-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}

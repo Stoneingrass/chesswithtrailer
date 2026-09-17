@@ -1,4 +1,5 @@
-import type { PieceType, Square } from '../types';
+import type { Piece, PieceType, Square, MoveContext } from '../types';
+export type { MoveContext };
 
 /** Опциональные правила варианта «шахматы с прицепом». */
 export interface TrailerOptions {
@@ -47,14 +48,9 @@ export function saveTrailerOptions(options: TrailerOptions): void {
   localStorage.setItem(TRAILER_OPTIONS_STORAGE_KEY, JSON.stringify(options));
 }
 
-export interface FollowerShift {
+export interface PlannedFollower {
   from: Square;
   to: Square | null;
-}
-
-export interface MoveContext {
-  /** Клетки ведомых фигур (до хода) */
-  followers?: Square[];
-  /** Выбранные превращения ведомых пешек { [followerFromSquare]: PieceType } */
-  followerPromotions?: Partial<Record<Square, PieceType>>;
+  piece: Piece;
+  promotion?: PieceType;
 }

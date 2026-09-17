@@ -1,0 +1,87 @@
+/* Network UI styles */
+.net-panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.8rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.net-panel h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.net-divider {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0.2rem 0;
+}
+
+.join-form {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.room-code-input {
+  flex: 1;
+  width: auto;
+  background: var(--bg);
+  border: 1px solid var(--surface-alt);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 0.35rem 0.4rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  font-family: monospace;
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
+.room-code-input:focus {
+  outline: 1px solid var(--accent);
+}
+
+.net-status-box {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.6rem;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.room-code-display {
+  font-family: monospace;
+  font-size: 1rem;
+  color: #f2cc8f;
+  letter-spacing: 0.08em;
+}
+
+.status-msg {
+  color: #f2cc8f;
+  font-size: 0.78rem;
+}
+
+.status-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.online-badge {
+  display: inline-block;
+  color: #3fc175;
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.error-msg {
+  color: var(--accent);
+  font-size: 0.8rem;
+}

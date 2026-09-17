@@ -4,10 +4,10 @@ import type {
   GameSnapshot,
   Move,
   MoveAttemptResult,
+  MoveContext,
   Piece,
   Square,
 } from '../types';
-import type { MoveContext } from '../trailer/types';
 
 /**
  * Интерфейс набора правил.
