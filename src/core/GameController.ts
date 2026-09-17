@@ -19,15 +19,18 @@ import type {
  */
 export class GameController {
   private listeners = new Set<GameEventListener>();
+  private snapshotHistory: GameSnapshot[] = [];
 
   constructor(private rules: RuleSet) {
     this.rules.createInitialState();
+    this.snapshotHistory = [this.rules.getSnapshot()];
   }
 
   /** Заменить набор правил (например, при смене режима) */
   setRuleSet(rules: RuleSet): void {
     this.rules = rules;
     this.rules.createInitialState();
+    this.snapshotHistory = [this.rules.getSnapshot()];
     this.emit({ type: 'reset', snapshot: this.rules.getSnapshot() });
   }
 
@@ -41,6 +44,7 @@ export class GameController {
 
   loadSnapshot(snapshot: GameSnapshot): void {
     this.rules.loadState(snapshot);
+    this.snapshotHistory = [this.rules.getSnapshot()];
     this.emit({ type: 'reset', snapshot: this.rules.getSnapshot() });
     const result = this.rules.getResult();
     if (result.status !== 'ongoing') {
@@ -76,6 +80,7 @@ export class GameController {
   ): MoveAttemptResult {
     const result = this.rules.tryMove(from, to, promotion, context);
     if (result.ok) {
+      this.snapshotHistory.push(result.snapshot);
       this.emit({ type: 'move', move: result.move, snapshot: result.snapshot });
       const gameResult = this.rules.getResult();
       if (gameResult.status !== 'ongoing') {
@@ -85,8 +90,45 @@ export class GameController {
     return result;
   }
 
+  /** Возврат на count полуходов назад */
+  undo(count = 1): boolean {
+    if (this.snapshotHistory.length <= 1 || count < 1) return false;
+    const targetIndex = Math.max(0, this.snapshotHistory.length - 1 - count);
+    this.snapshotHistory = this.snapshotHistory.slice(0, targetIndex + 1);
+    const targetSnapshot = this.snapshotHistory[this.snapshotHistory.length - 1];
+    this.rules.loadState(targetSnapshot);
+    this.emit({ type: 'undo', snapshot: this.rules.getSnapshot(), count });
+    return true;
+  }
+
+  /** Сдаться */
+  resign(playerColor: Color): void {
+    const winner: Color = playerColor === 'w' ? 'b' : 'w';
+    const result: GameResult = { status: 'resigned', winner };
+    const current = this.rules.getSnapshot();
+    const resignedSnapshot: GameSnapshot = {
+      ...current,
+      result,
+    };
+    this.rules.loadState(resignedSnapshot);
+    this.emit({ type: 'gameOver', result });
+  }
+
+  /** Ничья по соглашению */
+  agreeDraw(): void {
+    const result: GameResult = { status: 'draw', reason: 'agreement' };
+    const current = this.rules.getSnapshot();
+    const drawSnapshot: GameSnapshot = {
+      ...current,
+      result,
+    };
+    this.rules.loadState(drawSnapshot);
+    this.emit({ type: 'gameOver', result });
+  }
+
   reset(): void {
     this.rules.reset();
+    this.snapshotHistory = [this.rules.getSnapshot()];
     this.emit({ type: 'reset', snapshot: this.rules.getSnapshot() });
   }
 

@@ -50,6 +50,8 @@ export interface GameSnapshot {
   customData?: Record<string, unknown>;
 }
 
+
+
 export type MoveAttemptResult =
   | { ok: true; move: Move; snapshot: GameSnapshot }
   | { ok: false; reason: string };
@@ -57,6 +59,7 @@ export type MoveAttemptResult =
 export type GameEvent =
   | { type: 'move'; move: Move; snapshot: GameSnapshot }
   | { type: 'gameOver'; result: GameResult }
-  | { type: 'reset'; snapshot: GameSnapshot };
+  | { type: 'reset'; snapshot: GameSnapshot }
+  | { type: 'undo'; snapshot: GameSnapshot; count: number };
 
 export type GameEventListener = (event: GameEvent) => void;

@@ -27,7 +27,7 @@ function resultMessage(result: GameResult): string {
     case 'stalemate':
       return 'Пат — ничья.';
     case 'draw':
-      return `Ничья (${result.reason}).`;
+      return `Ничья (${result.reason === 'agreement' ? 'соглашение сторон' : result.reason}).`;
     case 'resigned':
       return `Сдались. Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
   }
@@ -38,6 +38,12 @@ export class ChessBoardView {
   private followerSquares = new Set<Square>();
   private legalTargets = new Set<Square>();
   private lastMoveSquares = new Set<Square>();
+
+  private takebackState: 'idle' | 'offered' | 'received' = 'idle';
+  private drawState: 'idle' | 'offered' | 'received' = 'idle';
+  private resignState: 'idle' | 'confirming' = 'idle';
+  private pendingUndoCount = 1;
+  private drawCooldownStartMoveCount: number | null = null;
   private flipped = false;
   private draggedSquare: Square | null = null;
   private timeline: GameSnapshot[] = [];
@@ -116,6 +122,28 @@ export class ChessBoardView {
                 <button type="button" class="btn btn-secondary" data-nav="end">▶|</button>
               </div>
               <div class="timeline-status"></div>
+              <div class="game-action-buttons hidden-action-block">
+                <button type="button" class="btn btn-action action-takeback" data-action="takeback" title="Предложение возврата хода">
+                  <span class="action-icon">↺</span><span class="action-label">Ход назад</span>
+                </button>
+                <button type="button" class="btn btn-action action-draw" data-action="draw" title="Предложение ничьей">
+                  <span class="action-icon">🤝</span><span class="action-label">Ничья</span>
+                </button>
+                <button type="button" class="btn btn-action action-resign" data-action="resign" title="Сдаться">
+                  <span class="action-icon">🏳</span><span class="action-label">Сдаться</span>
+                </button>
+              </div>
+              <div class="offer-proposal-bar hidden-action-block">
+                <button type="button" class="btn btn-proposal btn-accept" data-action="proposal-accept" title="Согласиться">
+                  <span class="action-icon">✔</span><span class="action-label">Да</span>
+                </button>
+                <div class="proposal-label-box">
+                  <span class="proposal-text"></span>
+                </div>
+                <button type="button" class="btn btn-proposal btn-reject" data-action="proposal-reject" title="Отклонить">
+                  <span class="action-icon">✖</span><span class="action-label">Нет</span>
+                </button>
+              </div>
               <div class="button-group">
                 <button type="button" class="btn btn-secondary" data-action="flip">Перевернуть</button>
                 <button type="button" class="btn btn-primary" data-action="reset">Новая партия</button>
@@ -169,6 +197,10 @@ export class ChessBoardView {
       }
     });
 
+    window.addEventListener('contextmenu', () => {
+      this.cancelPendingActions();
+    });
+
     this.boardEl = this.container.querySelector('.board')!;
     this.statusEl = this.container.querySelector('.game-status')!;
     this.historyEl = this.container.querySelector('.move-history')!;
@@ -188,6 +220,8 @@ export class ChessBoardView {
     this.setupNetworkEvents();
 
     this.container.querySelector('[data-action="reset"]')!.addEventListener('click', () => {
+      this.cancelPendingActions();
+      this.drawCooldownStartMoveCount = null;
       this.game.reset();
       this.clearPersistedState();
       if (this.mode === 'online' && this.net.isConnected()) {
@@ -196,8 +230,25 @@ export class ChessBoardView {
     });
 
     this.container.querySelector('[data-action="flip"]')!.addEventListener('click', () => {
+      this.cancelPendingActions();
       this.flipped = !this.flipped;
       this.render();
+    });
+
+    this.container.querySelector('[data-action="takeback"]')?.addEventListener('click', () => {
+      this.handleTakebackClick();
+    });
+    this.container.querySelector('[data-action="draw"]')?.addEventListener('click', () => {
+      this.handleDrawClick();
+    });
+    this.container.querySelector('[data-action="resign"]')?.addEventListener('click', () => {
+      this.handleResignClick();
+    });
+    this.container.querySelector('[data-action="proposal-accept"]')?.addEventListener('click', () => {
+      this.handleProposalAcceptClick();
+    });
+    this.container.querySelector('[data-action="proposal-reject"]')?.addEventListener('click', () => {
+      this.handleProposalRejectClick();
     });
     this.historyEl.addEventListener('click', (e) => {
       const target = (e.target as HTMLElement).closest<HTMLElement>('.move-san');
@@ -262,12 +313,16 @@ export class ChessBoardView {
         this.savePersistedState();
       }
       if (event.type === 'reset') {
+        this.drawCooldownStartMoveCount = null;
         this.lastMoveSquares.clear();
         this.clearSelection();
         if (!this.isBrowsingHistory) {
           this.timeline = [event.snapshot];
           this.timelineIndex = 0;
         }
+      }
+      if (event.type === 'undo') {
+        this.clearSelection();
       }
       this.render();
     });
@@ -381,6 +436,7 @@ export class ChessBoardView {
 
     this.net.on('message', (msg) => {
       if (msg.type === 'INIT_GAME') {
+        this.drawCooldownStartMoveCount = null;
         this.isBrowsingHistory = true;
         try {
           this.game.loadSnapshot(msg.snapshot);
@@ -413,6 +469,7 @@ export class ChessBoardView {
         this.refreshLegalTargets();
         this.render();
       } else if (msg.type === 'RESET_GAME') {
+        this.drawCooldownStartMoveCount = null;
         this.isBrowsingHistory = true;
         try {
           this.game.loadSnapshot(msg.snapshot);
@@ -422,10 +479,40 @@ export class ChessBoardView {
         this.timeline = [msg.snapshot];
         this.timelineIndex = 0;
         this.clearSelection();
-        this.render();
       } else if (msg.type === 'ERROR') {
         this.netErrorMessage = msg.message;
         this.renderNetSlot();
+      } else if (msg.type === 'TAKEBACK_OFFER') {
+        if (msg.fromColor !== this.net.getMyColor()) {
+          this.takebackState = 'received';
+          this.pendingUndoCount = msg.undoCount;
+          this.updateGameActionButtons();
+        }
+      } else if (msg.type === 'TAKEBACK_ACCEPT') {
+        this.applyTakebackUndo(msg.undoCount);
+      } else if (msg.type === 'TAKEBACK_CANCEL') {
+        this.takebackState = 'idle';
+        this.updateGameActionButtons();
+      } else if (msg.type === 'DRAW_OFFER') {
+        if (msg.fromColor !== this.net.getMyColor()) {
+          this.drawState = 'received';
+          this.updateGameActionButtons();
+        }
+      } else if (msg.type === 'DRAW_ACCEPT') {
+        this.game.agreeDraw();
+        this.drawState = 'idle';
+        this.render();
+      } else if (msg.type === 'DRAW_REJECT') {
+        this.drawState = 'idle';
+        this.drawCooldownStartMoveCount = this.game.getSnapshot().moveHistory.length;
+        this.updateGameActionButtons();
+      } else if (msg.type === 'DRAW_CANCEL') {
+        this.drawState = 'idle';
+        this.updateGameActionButtons();
+      } else if (msg.type === 'RESIGN') {
+        this.game.resign(msg.fromColor);
+        this.resignState = 'idle';
+        this.render();
       }
     });
   }
@@ -668,6 +755,261 @@ export class ChessBoardView {
 
     if (btnEnd) {
       btnEnd.classList.toggle('pulse', shouldPulse);
+    }
+
+    this.updateGameActionButtons();
+  }
+
+  private cancelPendingActions(sendNet = true): void {
+    let changed = false;
+    if (this.takebackState === 'offered') {
+      if (sendNet && this.mode === 'online' && this.net.isConnected()) {
+        this.net.sendMessage({ type: 'TAKEBACK_CANCEL' });
+      }
+      this.takebackState = 'idle';
+      changed = true;
+    }
+    if (this.drawState === 'offered') {
+      if (sendNet && this.mode === 'online' && this.net.isConnected()) {
+        this.net.sendMessage({ type: 'DRAW_CANCEL' });
+      }
+      this.drawState = 'idle';
+      changed = true;
+    }
+    if (this.resignState !== 'idle') {
+      this.resignState = 'idle';
+      changed = true;
+    }
+    if (changed) {
+      this.updateGameActionButtons();
+    }
+  }
+
+  private updateLastMoveFromTimeline(): void {
+    const currentSnap = this.timeline[this.timelineIndex];
+    if (currentSnap && currentSnap.moveHistory.length > 0) {
+      const lastMove = currentSnap.moveHistory[currentSnap.moveHistory.length - 1];
+      this.lastMoveSquares = new Set([lastMove.from, lastMove.to]);
+      for (const f of lastMove.followers ?? []) {
+        this.lastMoveSquares.add(f.from);
+        this.lastMoveSquares.add(f.to);
+      }
+    } else {
+      this.lastMoveSquares.clear();
+    }
+  }
+
+  private applyTakebackUndo(undoCount: number): void {
+    const validCount = Math.min(undoCount, Math.max(1, this.timeline.length - 1));
+    this.game.undo(validCount);
+    this.timeline = this.timeline.slice(0, Math.max(1, this.timeline.length - validCount));
+    this.timelineIndex = this.timeline.length - 1;
+    const targetSnapshot = this.timeline[this.timelineIndex];
+
+    this.isBrowsingHistory = true;
+    try {
+      this.game.loadSnapshot(targetSnapshot);
+    } finally {
+      this.isBrowsingHistory = false;
+    }
+
+    this.updateLastMoveFromTimeline();
+    this.takebackState = 'idle';
+    this.clearSelection();
+    this.savePersistedState();
+    this.render();
+  }
+
+  private handleTakebackClick(): void {
+    if (this.mode !== 'online' || !this.net.isConnected()) return;
+    if (this.game.getResult().status !== 'ongoing') return;
+    if (this.timeline.length <= 1) return;
+
+    if (this.takebackState === 'idle') {
+      this.cancelPendingActions(true);
+      this.takebackState = 'offered';
+      const myColor = this.net.getMyColor() ?? (this.flipped ? 'b' : 'w');
+      const currentTurn = this.game.getTurn();
+      const rawUndoCount = currentTurn === myColor ? 2 : 1;
+      const undoCount = Math.min(rawUndoCount, Math.max(1, this.timeline.length - 1));
+      this.pendingUndoCount = undoCount;
+      this.net.sendMessage({ type: 'TAKEBACK_OFFER', fromColor: myColor, undoCount });
+      this.updateGameActionButtons();
+    } else if (this.takebackState === 'offered') {
+      this.takebackState = 'idle';
+      this.net.sendMessage({ type: 'TAKEBACK_CANCEL' });
+      this.updateGameActionButtons();
+    } else if (this.takebackState === 'received') {
+      const undoCount = Math.min(this.pendingUndoCount, Math.max(1, this.timeline.length - 1));
+      this.applyTakebackUndo(undoCount);
+      this.net.sendMessage({ type: 'TAKEBACK_ACCEPT', undoCount });
+    }
+  }
+
+  private handleDrawClick(): void {
+    if (this.mode !== 'online' || !this.net.isConnected()) return;
+    if (this.game.getResult().status !== 'ongoing') return;
+
+    const currentMoveCount = this.game.getSnapshot().moveHistory.length;
+    if (this.drawCooldownStartMoveCount !== null) {
+      const elapsed = currentMoveCount - this.drawCooldownStartMoveCount;
+      if (elapsed < 10) return;
+      this.drawCooldownStartMoveCount = null;
+    }
+
+    if (this.drawState === 'idle') {
+      this.cancelPendingActions(true);
+      this.drawState = 'offered';
+      const myColor = this.net.getMyColor() ?? (this.flipped ? 'b' : 'w');
+      this.net.sendMessage({ type: 'DRAW_OFFER', fromColor: myColor });
+      this.updateGameActionButtons();
+    } else if (this.drawState === 'offered') {
+      this.drawState = 'idle';
+      this.net.sendMessage({ type: 'DRAW_CANCEL' });
+      this.updateGameActionButtons();
+    }
+  }
+
+  private handleProposalAcceptClick(): void {
+    if (this.mode !== 'online' || !this.net.isConnected()) return;
+    if (this.game.getResult().status !== 'ongoing') return;
+
+    if (this.resignState === 'confirming') {
+      const myColor = this.net.getMyColor() ?? (this.flipped ? 'b' : 'w');
+      this.game.resign(myColor);
+      this.resignState = 'idle';
+      this.net.sendMessage({ type: 'RESIGN', fromColor: myColor });
+      this.render();
+    } else if (this.takebackState === 'received') {
+      const undoCount = Math.min(this.pendingUndoCount, Math.max(1, this.timeline.length - 1));
+      this.applyTakebackUndo(undoCount);
+      this.net.sendMessage({ type: 'TAKEBACK_ACCEPT', undoCount });
+    } else if (this.drawState === 'received') {
+      this.game.agreeDraw();
+      this.drawState = 'idle';
+      this.net.sendMessage({ type: 'DRAW_ACCEPT' });
+      this.render();
+    }
+  }
+
+  private handleProposalRejectClick(): void {
+    if (this.mode !== 'online' || !this.net.isConnected()) return;
+
+    if (this.resignState === 'confirming') {
+      this.resignState = 'idle';
+      this.updateGameActionButtons();
+    } else if (this.takebackState === 'received') {
+      this.takebackState = 'idle';
+      this.net.sendMessage({ type: 'TAKEBACK_CANCEL' });
+      this.updateGameActionButtons();
+    } else if (this.drawState === 'received') {
+      this.drawState = 'idle';
+      this.net.sendMessage({ type: 'DRAW_REJECT' });
+      this.updateGameActionButtons();
+    }
+  }
+
+  private handleResignClick(): void {
+    if (this.mode !== 'online' || !this.net.isConnected()) return;
+    if (this.game.getResult().status !== 'ongoing') return;
+
+    if (this.resignState === 'idle') {
+      this.cancelPendingActions(true);
+      this.resignState = 'confirming';
+      this.updateGameActionButtons();
+    }
+  }
+
+  private updateGameActionButtons(): void {
+    const actionContainer = this.container.querySelector<HTMLElement>('.game-action-buttons');
+    const proposalBar = this.container.querySelector<HTMLElement>('.offer-proposal-bar');
+    if (!actionContainer || !proposalBar) return;
+
+    const isOnline = this.mode === 'online';
+    if (!isOnline) {
+      actionContainer.classList.add('hidden-action-block');
+      proposalBar.classList.add('hidden-action-block');
+      return;
+    }
+
+    const isProposalReceived = this.takebackState === 'received' || this.drawState === 'received';
+    const isResignConfirming = this.resignState === 'confirming';
+
+    if (isProposalReceived || isResignConfirming) {
+      actionContainer.classList.add('hidden-action-block');
+      proposalBar.classList.remove('hidden-action-block');
+
+      const textEl = proposalBar.querySelector<HTMLElement>('.proposal-text');
+      if (textEl) {
+        if (isResignConfirming) {
+          textEl.textContent = 'Сдаться?';
+        } else if (this.takebackState === 'received') {
+          textEl.textContent = 'Возврат хода?';
+        } else if (this.drawState === 'received') {
+          textEl.textContent = 'Ничья?';
+        }
+      }
+      return;
+    }
+
+    proposalBar.classList.add('hidden-action-block');
+    actionContainer.classList.remove('hidden-action-block');
+
+    const isConnected = this.net.isConnected();
+    const gameIsOngoing = this.game.getResult().status === 'ongoing';
+    const hasMoves = this.timeline.length > 1;
+    const isDisabled = !isConnected || !gameIsOngoing;
+
+    const currentMoveCount = this.game.getSnapshot().moveHistory.length;
+    let drawCooldownLeft = 0;
+    if (this.drawCooldownStartMoveCount !== null) {
+      const elapsed = currentMoveCount - this.drawCooldownStartMoveCount;
+      if (elapsed < 10) {
+        drawCooldownLeft = Math.ceil((10 - elapsed) / 2);
+      } else {
+        this.drawCooldownStartMoveCount = null;
+      }
+    }
+
+    const takebackBtn = actionContainer.querySelector<HTMLButtonElement>('.action-takeback');
+    const drawBtn = actionContainer.querySelector<HTMLButtonElement>('.action-draw');
+    const resignBtn = actionContainer.querySelector<HTMLButtonElement>('.action-resign');
+
+    if (takebackBtn) {
+      takebackBtn.disabled = isDisabled || !hasMoves;
+      takebackBtn.classList.toggle('is-waiting', this.takebackState === 'offered');
+      if (this.takebackState === 'idle') {
+        takebackBtn.innerHTML = '<span class="action-icon">↺</span><span class="action-label">Ход назад</span>';
+      } else if (this.takebackState === 'offered') {
+        takebackBtn.innerHTML = '<span class="action-icon spinner">⏳</span><span class="action-label">Ожидание...</span>';
+      }
+    }
+
+    if (drawBtn) {
+      const drawBtnDisabled = isDisabled || drawCooldownLeft > 0;
+      drawBtn.disabled = drawBtnDisabled;
+      drawBtn.classList.toggle('is-waiting', this.drawState === 'offered');
+
+      let labelText = 'Ничья';
+      let iconClass = '';
+      if (drawCooldownLeft > 0) {
+        labelText = `Ничья (${drawCooldownLeft})`;
+        const moveWord = drawCooldownLeft === 1 ? 'ход' : drawCooldownLeft < 5 ? 'хода' : 'ходов';
+        drawBtn.title = `Нельзя предлагать ничью ещё ${drawCooldownLeft} ${moveWord}`;
+      } else {
+        drawBtn.title = 'Предложение ничьей';
+        if (this.drawState === 'offered') {
+          labelText = 'Ничья...';
+          iconClass = 'spinner';
+        }
+      }
+
+      drawBtn.innerHTML = `<span class="action-icon ${iconClass}">🤝</span><span class="action-label">${labelText}</span>`;
+    }
+
+    if (resignBtn) {
+      resignBtn.disabled = isDisabled;
+      resignBtn.innerHTML = '<span class="action-icon">🏳</span><span class="action-label">Сдаться</span>';
     }
   }
 

@@ -34,6 +34,35 @@ export type NetworkMessage =
     }
   | {
       type: 'PONG';
+    }
+  | {
+      type: 'TAKEBACK_OFFER';
+      fromColor: Color;
+      undoCount: number;
+    }
+  | {
+      type: 'TAKEBACK_ACCEPT';
+      undoCount: number;
+    }
+  | {
+      type: 'TAKEBACK_CANCEL';
+    }
+  | {
+      type: 'DRAW_OFFER';
+      fromColor: Color;
+    }
+  | {
+      type: 'DRAW_ACCEPT';
+    }
+  | {
+      type: 'DRAW_REJECT';
+    }
+  | {
+      type: 'DRAW_CANCEL';
+    }
+  | {
+      type: 'RESIGN';
+      fromColor: Color;
     };
 
 export interface NetworkEvents {

@@ -22,14 +22,7 @@ function toPieceType(symbol: PieceSymbol): PieceType {
   return symbol as PieceType;
 }
 
-function chessToSnapshot(chess: Chess, moveHistory: Move[]): GameSnapshot {
-  return {
-    fen: chess.fen(),
-    turn: chess.turn(),
-    moveHistory: [...moveHistory],
-    result: getResultFromChess(chess),
-  };
-}
+
 
 function getResultFromChess(chess: Chess): GameResult {
   if (!chess.isGameOver()) {
@@ -64,15 +57,18 @@ export class StandardChessRules implements RuleSet {
   protected chess: Chess;
   protected moveHistory: Move[] = [];
   protected customData: Record<string, unknown> = {};
+  protected currentResult: GameResult = { status: 'ongoing' };
 
   constructor(fen?: string) {
     this.chess = new Chess(fen);
+    this.currentResult = getResultFromChess(this.chess);
   }
 
   createInitialState(): GameSnapshot {
     this.chess = new Chess();
     this.moveHistory = [];
     this.customData = {};
+    this.currentResult = getResultFromChess(this.chess);
     return this.getSnapshot();
   }
 
@@ -80,11 +76,15 @@ export class StandardChessRules implements RuleSet {
     this.chess = new Chess(snapshot.fen);
     this.moveHistory = [...snapshot.moveHistory];
     this.customData = snapshot.customData ? { ...snapshot.customData } : {};
+    this.currentResult = snapshot.result ?? getResultFromChess(this.chess);
   }
 
   getSnapshot(): GameSnapshot {
     return {
-      ...chessToSnapshot(this.chess, this.moveHistory),
+      fen: this.chess.fen(),
+      turn: this.chess.turn(),
+      moveHistory: [...this.moveHistory],
+      result: this.currentResult,
       customData: Object.keys(this.customData).length > 0 ? { ...this.customData } : undefined,
     };
   }
@@ -112,7 +112,7 @@ export class StandardChessRules implements RuleSet {
   }
 
   getResult(): GameResult {
-    return getResultFromChess(this.chess);
+    return this.currentResult;
   }
 
   getLegalMoves(square?: Square, _context?: import('../trailer/types').MoveContext): Move[] {
@@ -155,6 +155,7 @@ export class StandardChessRules implements RuleSet {
     };
 
     this.moveHistory.push(recorded);
+    this.currentResult = getResultFromChess(this.chess);
     this.onMoveApplied(recorded);
 
     return { ok: true, move: recorded, snapshot: this.getSnapshot() };
