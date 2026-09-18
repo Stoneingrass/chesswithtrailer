@@ -64,9 +64,13 @@ export class NetworkManager {
         resolve(code);
       });
 
-      this.peer.on('error', (err) => {
-        console.error('PeerJS Host error:', err);
-        this.updateStatus('error', `Ошибка сети: ${err.message}`);
+      this.peer.on('error', (err: any) => {
+        console.warn('PeerJS Host error:', err);
+        let errorMsg = `Ошибка сети: ${err.message || 'Не удалось создать комнату'}`;
+        if (err.type === 'unavailable-id') {
+          errorMsg = `Код комнаты занят, попробуйте создать комнату заново.`;
+        }
+        this.updateStatus('error', errorMsg);
         reject(err);
       });
 
@@ -101,9 +105,15 @@ export class NetworkManager {
         this.setupGuestConnection(resolve, reject);
       });
 
-      this.peer.on('error', (err) => {
-        console.error('PeerJS Guest error:', err);
-        this.updateStatus('error', `Не удалось подключиться к комнате ${cleanCode}`);
+      this.peer.on('error', (err: any) => {
+        console.warn('PeerJS Guest error:', err);
+        let errorMsg = `Не удалось подключиться к комнате ${cleanCode}`;
+        if (err.type === 'peer-unavailable') {
+          errorMsg = `Комната ${cleanCode} не найдена или закрыта. Убедитесь, что создатель в сети.`;
+        } else if (err.type === 'network' || err.type === 'server-error') {
+          errorMsg = `Ошибка сети при подключении к комнате ${cleanCode}.`;
+        }
+        this.updateStatus('error', errorMsg);
         reject(err);
       });
     });
