@@ -47,19 +47,37 @@ export function renderNetSlot(
     return;
   }
 
+  const bindCopyCodeHandler = (code: string | null) => {
+    if (!code) return;
+    netSlotEl.querySelector('.room-code-display')?.addEventListener('click', () => {
+      void navigator.clipboard.writeText(code).then(() => {
+        const el = netSlotEl.querySelector<HTMLElement>('.room-code-display');
+        if (el) {
+          const orig = el.textContent;
+          el.textContent = '✓ Скопировано!';
+          setTimeout(() => {
+            el.textContent = orig;
+          }, 1200);
+        }
+      });
+    });
+  };
+
   if (netStatus === 'waiting_for_peer') {
     const shareUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
     netSlotEl.innerHTML = `
       <div class="net-panel">
         <h2>Игра по сети</h2>
         <div class="net-status-box waiting">
-          <p>Код комнаты: <strong class="room-code-display">${roomCode}</strong></p>
+          <p>Код комнаты: <strong class="room-code-display" title="Нажмите, чтобы скопировать код">${roomCode}</strong></p>
           <button type="button" class="btn btn-secondary btn-sm btn-block" data-net-action="copy-link">📋 Скопировать ссылку</button>
           <p class="status-msg">Ожидание подключения второго игрока...</p>
           <button type="button" class="btn btn-link btn-sm" data-net-action="leave">Отмена</button>
         </div>
       </div>
     `;
+
+    bindCopyCodeHandler(roomCode);
 
     netSlotEl.querySelector('[data-net-action="copy-link"]')?.addEventListener('click', () => {
       void navigator.clipboard.writeText(shareUrl).then(() => {
@@ -79,10 +97,11 @@ export function renderNetSlot(
       <div class="net-panel">
         <h2>Игра по сети</h2>
         <div class="net-status-box connecting">
-          <p class="status-msg">Подключение к комнате <strong>${roomCode}</strong>...</p>
+          <p class="status-msg">Подключение к комнате <strong class="room-code-display" title="Нажмите, чтобы скопировать код">${roomCode}</strong>...</p>
         </div>
       </div>
     `;
+    bindCopyCodeHandler(roomCode);
     return;
   }
 
@@ -93,12 +112,14 @@ export function renderNetSlot(
         <h2>Игра по сети</h2>
         <div class="net-status-box connected">
           <div class="online-badge">● В сети</div>
-          <p>Комната: <strong>${roomCode}</strong></p>
+          <p>Комната: <strong class="room-code-display" title="Нажмите, чтобы скопировать код">${roomCode}</strong></p>
           <p>Ваш цвет: <strong>${colorText}</strong></p>
           <button type="button" class="btn btn-secondary btn-sm btn-block" data-net-action="leave">Покинуть комнату</button>
         </div>
       </div>
     `;
+
+    bindCopyCodeHandler(roomCode);
 
     netSlotEl.querySelector('[data-net-action="leave"]')?.addEventListener('click', () => {
       handlers.onLeaveRoom();

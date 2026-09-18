@@ -20,7 +20,7 @@ import { animateBoardTransition, animateGroupMove, captureBoardState } from './b
 
 import { OnlineSessionManager } from './net/onlineSession';
 import { clearPersistedState, savePersistedState } from './persist/gameStateStorage';
-import { switchMode } from './modeSwitch';
+import { switchMode, updateModeTabs } from './modeSwitch';
 
 export class ChessBoardView {
   private state = new BoardSessionState();
@@ -105,6 +105,7 @@ export class ChessBoardView {
         refreshOptionsPanel: () => this.refreshOptionsPanel(),
         refreshLegalTargets: () => this.refreshLegalTargets(),
         applyTakebackUndo: (count) => this.applyTakebackUndo(count),
+        startRematchGame: () => this.startRematchGame(),
       },
     );
 
@@ -114,9 +115,7 @@ export class ChessBoardView {
     this.container.querySelector('[data-action="reset"]')!.addEventListener('click', () => {
       this.cancelPendingActions();
       this.state.drawCooldownStartMoveCount = null;
-      this.state.drawState = 'idle';
-      this.state.takebackState = 'idle';
-      this.state.resignState = 'idle';
+      this.state.resetOffers();
       this.game.reset();
       this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
       this.state.timeline = [this.game.getSnapshot()];
@@ -145,6 +144,9 @@ export class ChessBoardView {
     });
     this.container.querySelector('[data-action="resign"]')?.addEventListener('click', () => {
       this.handleResignClick();
+    });
+    this.container.querySelector('[data-action="rematch"]')?.addEventListener('click', () => {
+      this.handleRematchClick();
     });
     this.container.querySelector('[data-action="proposal-accept"]')?.addEventListener('click', () => {
       this.handleProposalAcceptClick();
@@ -228,6 +230,11 @@ export class ChessBoardView {
       if (event.type === 'undo') {
         this.state.clearSelection();
       }
+      if (event.type === 'gameOver') {
+        if (this.state.timeline.length > 0) {
+          this.state.timeline[this.state.timeline.length - 1] = this.game.getSnapshot();
+        }
+      }
       this.render();
     });
 
@@ -246,12 +253,16 @@ export class ChessBoardView {
     this.container.querySelectorAll<HTMLButtonElement>('.mode-tab').forEach((tab) => {
       tab.addEventListener('click', () => {
         const mode = tab.dataset.mode as 'local' | 'online';
+        if (mode === 'local' && this.state.mode === 'online' && this.net.getStatus() !== 'disconnected') {
+          return;
+        }
         switchMode(mode, this.container, this.headerSubEl, this.state, this.game, this.net, () => this.render());
       });
     });
   }
 
   private render(): void {
+    updateModeTabs(this.container, this.state, this.net);
     this.onlineSessionMgr.renderNet();
     renderBoard(this.boardEl, this.state, this.game, {
       onDragStart: (e, sq) => this.dragDropMgr.onDragStart(e, sq),
@@ -572,6 +583,22 @@ export class ChessBoardView {
     animateBoardTransition(this.boardEl, oldBoardState, this.game, 160);
   }
 
+  public startRematchGame(): void {
+    const newColor = this.net.swapColor();
+    if (newColor) {
+      this.state.flipped = newColor === 'b';
+    }
+    this.game.reset();
+    this.state.timeline = [this.game.getSnapshot()];
+    this.state.timelineIndex = 0;
+    this.state.lastMoveSquares.clear();
+    this.state.clearSelection();
+    this.state.drawCooldownStartMoveCount = null;
+    this.state.resetOffers();
+    clearPersistedState();
+    this.render();
+  }
+
   private cancelPendingActions(sendNet = true): void {
     let changed = false;
     if (this.state.takebackState === 'offered') {
@@ -590,6 +617,13 @@ export class ChessBoardView {
     }
     if (this.state.resignState !== 'idle') {
       this.state.resignState = 'idle';
+      changed = true;
+    }
+    if (this.state.rematchState === 'offered') {
+      if (sendNet && this.state.mode === 'online' && this.net.isConnected()) {
+        this.net.sendMessage({ type: 'REMATCH_CANCEL' });
+      }
+      this.state.rematchState = 'idle';
       changed = true;
     }
     if (changed) {
@@ -682,9 +716,26 @@ export class ChessBoardView {
     }
   }
 
+  private handleRematchClick(): void {
+    if (this.state.mode !== 'online' || !this.net.isConnected()) return;
+    if (this.game.getResult().status === 'ongoing') return;
+
+    if (this.state.rematchState === 'idle') {
+      this.cancelPendingActions(true);
+      this.state.rematchState = 'offered';
+      const myColor = this.net.getMyColor() ?? (this.state.flipped ? 'b' : 'w');
+      this.net.sendMessage({ type: 'REMATCH_OFFER', fromColor: myColor });
+      updateGameActionButtons(this.container, this.state, this.game, this.net);
+    } else if (this.state.rematchState === 'offered') {
+      this.state.rematchState = 'idle';
+      this.net.sendMessage({ type: 'REMATCH_CANCEL' });
+      updateGameActionButtons(this.container, this.state, this.game, this.net);
+    }
+  }
+
   private handleProposalAcceptClick(): void {
     if (this.state.mode !== 'online' || !this.net.isConnected()) return;
-    if (this.game.getResult().status !== 'ongoing') return;
+    if (this.game.getResult().status !== 'ongoing' && this.state.rematchState !== 'received') return;
 
     if (this.state.resignState === 'confirming') {
       const myColor = this.net.getMyColor() ?? (this.state.flipped ? 'b' : 'w');
@@ -701,6 +752,9 @@ export class ChessBoardView {
       this.state.drawState = 'idle';
       this.net.sendMessage({ type: 'DRAW_ACCEPT' });
       this.render();
+    } else if (this.state.rematchState === 'received') {
+      this.net.sendMessage({ type: 'REMATCH_ACCEPT' });
+      this.startRematchGame();
     }
   }
 
@@ -717,6 +771,10 @@ export class ChessBoardView {
     } else if (this.state.drawState === 'received') {
       this.state.drawState = 'idle';
       this.net.sendMessage({ type: 'DRAW_REJECT' });
+      updateGameActionButtons(this.container, this.state, this.game, this.net);
+    } else if (this.state.rematchState === 'received') {
+      this.state.rematchState = 'idle';
+      this.net.sendMessage({ type: 'REMATCH_REJECT' });
       updateGameActionButtons(this.container, this.state, this.game, this.net);
     }
   }

@@ -55,6 +55,11 @@ export function getGameLayoutHtml(ruleSetName: string, optionsPanelHtml: string)
                 <span class="action-icon">🏳</span><span class="action-label">Сдаться</span>
               </button>
             </div>
+            <div class="rematch-action-block hidden-action-block">
+              <button type="button" class="btn btn-action action-rematch" data-action="rematch" title="Предложение реванша">
+                <span class="action-icon">⚔</span><span class="action-label">Реванш</span>
+              </button>
+            </div>
             <div class="offer-proposal-bar hidden-action-block">
               <button type="button" class="btn btn-proposal btn-accept" data-action="proposal-accept" title="Согласиться">
                 <span class="action-icon">✔</span><span class="action-label">Да</span>

@@ -215,14 +215,50 @@
 }
 
 /* Game Action Buttons (Online Mode) */
-.game-action-buttons {
+.game-action-buttons,
+.rematch-action-block {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.35rem;
   width: 100%;
 }
 
-.game-action-buttons.hidden-action-block {
+.rematch-action-block {
+  display: flex;
+}
+
+.action-rematch {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--surface-alt);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-rematch:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent-hover);
+}
+
+.action-rematch.is-waiting {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+}
+
+.game-action-buttons.hidden-action-block,
+.rematch-action-block.hidden-action-block,
+.offer-proposal-bar.hidden-action-block {
   display: none !important;
 }
 
@@ -232,10 +268,6 @@
   grid-template-columns: 1fr 2fr 1fr;
   gap: 0.35rem;
   width: 100%;
-}
-
-.offer-proposal-bar.hidden-action-block {
-  display: none !important;
 }
 
 .proposal-label-box {

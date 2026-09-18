@@ -9,6 +9,7 @@ export class BoardSessionState {
   takebackState: 'idle' | 'offered' | 'received' = 'idle';
   drawState: 'idle' | 'offered' | 'received' = 'idle';
   resignState: 'idle' | 'confirming' = 'idle';
+  rematchState: 'idle' | 'offered' | 'received' = 'idle';
   pendingUndoCount = 1;
   drawCooldownStartMoveCount: number | null = null;
 
@@ -39,6 +40,7 @@ export class BoardSessionState {
     this.takebackState = 'idle';
     this.drawState = 'idle';
     this.resignState = 'idle';
+    this.rematchState = 'idle';
     this.pendingUndoCount = 1;
   }
 }

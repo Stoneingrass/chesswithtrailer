@@ -9,21 +9,29 @@ export function updateGameActionButtons(
   net: NetworkManager,
 ): void {
   const actionContainer = container.querySelector<HTMLElement>('.game-action-buttons');
+  const rematchContainer = container.querySelector<HTMLElement>('.rematch-action-block');
   const proposalBar = container.querySelector<HTMLElement>('.offer-proposal-bar');
   if (!actionContainer || !proposalBar) return;
 
   const isOnline = state.mode === 'online';
   if (!isOnline) {
     actionContainer.classList.add('hidden-action-block');
+    if (rematchContainer) rematchContainer.classList.add('hidden-action-block');
     proposalBar.classList.add('hidden-action-block');
     return;
   }
 
-  const isProposalReceived = state.takebackState === 'received' || state.drawState === 'received';
+  const lastSnap = state.timeline.length > 0 ? state.timeline[state.timeline.length - 1] : null;
+  const gameIsOngoing = lastSnap ? lastSnap.result.status === 'ongoing' : game.getResult().status === 'ongoing';
+  const isProposalReceived =
+    state.takebackState === 'received' ||
+    state.drawState === 'received' ||
+    state.rematchState === 'received';
   const isResignConfirming = state.resignState === 'confirming';
 
   if (isProposalReceived || isResignConfirming) {
     actionContainer.classList.add('hidden-action-block');
+    if (rematchContainer) rematchContainer.classList.add('hidden-action-block');
     proposalBar.classList.remove('hidden-action-block');
 
     const textEl = proposalBar.querySelector<HTMLElement>('.proposal-text');
@@ -34,16 +42,38 @@ export function updateGameActionButtons(
         textEl.textContent = 'Возврат хода?';
       } else if (state.drawState === 'received') {
         textEl.textContent = 'Ничья?';
+      } else if (state.rematchState === 'received') {
+        textEl.textContent = 'Реванш?';
       }
     }
     return;
   }
 
   proposalBar.classList.add('hidden-action-block');
+
+  if (!gameIsOngoing) {
+    actionContainer.classList.add('hidden-action-block');
+    if (rematchContainer) {
+      rematchContainer.classList.remove('hidden-action-block');
+      const rematchBtn = rematchContainer.querySelector<HTMLButtonElement>('.action-rematch');
+      if (rematchBtn) {
+        const isConnected = net.isConnected();
+        rematchBtn.disabled = !isConnected;
+        rematchBtn.classList.toggle('is-waiting', state.rematchState === 'offered');
+        if (state.rematchState === 'idle') {
+          rematchBtn.innerHTML = '<span class="action-icon">⚔</span><span class="action-label">Реванш</span>';
+        } else if (state.rematchState === 'offered') {
+          rematchBtn.innerHTML = '<span class="action-icon spinner">⏳</span><span class="action-label">Ожидание...</span>';
+        }
+      }
+    }
+    return;
+  }
+
+  if (rematchContainer) rematchContainer.classList.add('hidden-action-block');
   actionContainer.classList.remove('hidden-action-block');
 
   const isConnected = net.isConnected();
-  const gameIsOngoing = game.getResult().status === 'ongoing';
   const hasMoves = state.timeline.length > 1;
   const isDisabled = !isConnected || !gameIsOngoing;
 

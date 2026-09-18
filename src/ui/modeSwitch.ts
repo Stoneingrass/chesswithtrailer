@@ -4,6 +4,28 @@ import type { NetworkManager } from '../net';
 import type { BoardSessionState } from './BoardSessionState';
 import { clearPersistedState } from './persist/gameStateStorage';
 
+export function updateModeTabs(
+  container: HTMLElement,
+  state: BoardSessionState,
+  net: NetworkManager,
+): void {
+  const localTab = container.querySelector<HTMLButtonElement>('.mode-tab[data-mode="local"]');
+  const inRoom = state.mode === 'online' && net.getStatus() !== 'disconnected';
+
+  if (localTab) {
+    localTab.disabled = inRoom;
+    if (inRoom) {
+      localTab.title = 'Чтобы перейти в локальный режим, сначала покиньте комнату';
+    } else {
+      localTab.removeAttribute('title');
+    }
+  }
+
+  container.querySelectorAll<HTMLButtonElement>('.mode-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.mode === state.mode);
+  });
+}
+
 export function switchMode(
   newMode: 'local' | 'online',
   container: HTMLElement,
@@ -14,11 +36,12 @@ export function switchMode(
   renderAll: () => void,
 ): void {
   if (state.mode === newMode) return;
+  if (newMode === 'local' && net.getStatus() !== 'disconnected') {
+    return;
+  }
   state.mode = newMode;
 
-  container.querySelectorAll<HTMLButtonElement>('.mode-tab').forEach((tab) => {
-    tab.classList.toggle('active', tab.dataset.mode === newMode);
-  });
+  updateModeTabs(container, state, net);
 
   if (newMode === 'local') {
     net.disconnect();

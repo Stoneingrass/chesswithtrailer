@@ -63,6 +63,19 @@ export type NetworkMessage =
   | {
       type: 'RESIGN';
       fromColor: Color;
+    }
+  | {
+      type: 'REMATCH_OFFER';
+      fromColor: Color;
+    }
+  | {
+      type: 'REMATCH_ACCEPT';
+    }
+  | {
+      type: 'REMATCH_REJECT';
+    }
+  | {
+      type: 'REMATCH_CANCEL';
     };
 
 export interface NetworkEvents {

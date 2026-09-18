@@ -95,6 +95,16 @@ body {
   color: var(--text);
 }
 
+.mode-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+
+.mode-tab:disabled:hover {
+  color: var(--text-muted);
+}
+
 .mode-tab.active {
   background: var(--surface-alt);
   color: #fff;

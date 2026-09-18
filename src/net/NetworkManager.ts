@@ -40,6 +40,15 @@ export class NetworkManager {
     return this.myColor;
   }
 
+  swapColor(): Color | null {
+    if (this.myColor === 'w') {
+      this.myColor = 'b';
+    } else if (this.myColor === 'b') {
+      this.myColor = 'w';
+    }
+    return this.myColor;
+  }
+
   getRoomCode(): string | null {
     return this.roomCode;
   }

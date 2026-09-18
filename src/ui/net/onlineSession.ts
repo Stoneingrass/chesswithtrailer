@@ -4,6 +4,7 @@ import type { NetworkManager } from '../../net';
 import type { BoardSessionState } from '../BoardSessionState';
 import { renderNetSlot } from '../panels/netRoomPanel';
 import { updateGameActionButtons } from '../panels/gameActionsPanel';
+import { updateModeTabs } from '../modeSwitch';
 import { clearPersistedState } from '../persist/gameStateStorage';
 
 export interface OnlineSessionHandlers {
@@ -12,6 +13,7 @@ export interface OnlineSessionHandlers {
   refreshOptionsPanel: () => void;
   refreshLegalTargets: () => void;
   applyTakebackUndo: (undoCount: number) => void;
+  startRematchGame: () => void;
 }
 
 export class OnlineSessionManager {
@@ -43,9 +45,7 @@ export class OnlineSessionManager {
     this.net.on('message', (msg) => {
       if (msg.type === 'INIT_GAME') {
         this.state.drawCooldownStartMoveCount = null;
-        this.state.drawState = 'idle';
-        this.state.takebackState = 'idle';
-        this.state.resignState = 'idle';
+        this.state.resetOffers();
         this.state.isBrowsingHistory = true;
         try {
           this.game.loadSnapshot(msg.snapshot);
@@ -79,9 +79,7 @@ export class OnlineSessionManager {
         this.handlers.renderAll();
       } else if (msg.type === 'RESET_GAME') {
         this.state.drawCooldownStartMoveCount = null;
-        this.state.drawState = 'idle';
-        this.state.takebackState = 'idle';
-        this.state.resignState = 'idle';
+        this.state.resetOffers();
         this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
         this.state.isBrowsingHistory = true;
         try {
@@ -128,6 +126,19 @@ export class OnlineSessionManager {
         this.game.resign(msg.fromColor);
         this.state.resignState = 'idle';
         this.handlers.renderAll();
+      } else if (msg.type === 'REMATCH_OFFER') {
+        if (msg.fromColor !== this.net.getMyColor()) {
+          this.state.rematchState = 'received';
+          updateGameActionButtons(this.container, this.state, this.game, this.net);
+        }
+      } else if (msg.type === 'REMATCH_ACCEPT') {
+        this.handlers.startRematchGame();
+      } else if (msg.type === 'REMATCH_REJECT') {
+        this.state.rematchState = 'idle';
+        updateGameActionButtons(this.container, this.state, this.game, this.net);
+      } else if (msg.type === 'REMATCH_CANCEL') {
+        this.state.rematchState = 'idle';
+        updateGameActionButtons(this.container, this.state, this.game, this.net);
       }
     });
   }
@@ -141,9 +152,7 @@ export class OnlineSessionManager {
       this.state.lastMoveSquares.clear();
       this.state.clearSelection();
       this.state.drawCooldownStartMoveCount = null;
-      this.state.drawState = 'idle';
-      this.state.takebackState = 'idle';
-      this.state.resignState = 'idle';
+      this.state.resetOffers();
 
       clearPersistedState();
       this.handlers.refreshOptionsPanel();
@@ -170,12 +179,14 @@ export class OnlineSessionManager {
   }
 
   renderNet(): void {
+    updateModeTabs(this.container, this.state, this.net);
     renderNetSlot(this.netSlotEl, this.state, this.net, {
       onCreateRoom: () => void this.createRoom(),
       onJoinRoom: (code) => void this.joinRoom(code),
       onLeaveRoom: () => {
         this.net.disconnect();
         this.renderNet();
+        this.handlers.renderAll();
       },
     });
   }
