@@ -269,3 +269,18 @@
 .promotion-cancel {
   margin-top: 0.5rem;
 }
+
+/* Premove Visual Highlighting */
+.piece-img.is-premove-ghost {
+  opacity: 0.45 !important;
+  filter: brightness(0.8) contrast(1.1) grayscale(0.15) !important;
+  pointer-events: none;
+}
+
+.square.is-premove-from {
+  box-shadow: inset 0 0 0 3px var(--highlight) !important;
+}
+
+.square.is-premove-to {
+  position: relative;
+}

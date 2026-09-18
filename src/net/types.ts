@@ -31,6 +31,7 @@ export type NetworkMessage =
       snapshot: GameSnapshot;
       whiteTimeMs?: number;
       blackTimeMs?: number;
+      timestamp?: number;
     }
   | {
       type: 'CHANGE_OPTIONS';

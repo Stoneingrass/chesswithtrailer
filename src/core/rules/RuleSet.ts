@@ -38,7 +38,7 @@ export interface RuleSet {
   getResult(): GameResult;
 
   /** Легальные ходы с клетки (или все, если square не указан) */
-  getLegalMoves(square?: Square, context?: MoveContext): Move[];
+  getLegalMoves(square?: Square, context?: MoveContext, forColor?: Color): Move[];
 
   /** Попытка сделать ход */
   tryMove(from: Square, to: Square, promotion?: Move['promotion'], context?: MoveContext): MoveAttemptResult;

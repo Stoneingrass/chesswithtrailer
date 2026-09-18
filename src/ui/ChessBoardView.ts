@@ -84,6 +84,7 @@ export class ChessBoardView {
       () => this.isMyTurn(),
       (sq) => this.selectLeading(sq),
       (from, to) => this.attemptMove(from, to),
+      () => this.net.getMyColor(),
     );
 
     this.touchDragMgr = new TouchDragManager(
@@ -93,6 +94,7 @@ export class ChessBoardView {
       () => this.isMyTurn(),
       (sq) => this.selectLeading(sq),
       (from, to) => this.attemptMove(from, to),
+      () => this.net.getMyColor(),
     );
 
     this.onlineSessionMgr = new OnlineSessionManager(
@@ -108,6 +110,7 @@ export class ChessBoardView {
         refreshLegalTargets: () => this.refreshLegalTargets(),
         applyTakebackUndo: (count) => this.applyTakebackUndo(count),
         startRematchGame: () => this.startRematchGame(),
+        tryExecutePremove: (arrivalTimestamp) => this.tryExecutePremove(arrivalTimestamp),
       },
     );
 
@@ -366,15 +369,31 @@ export class ChessBoardView {
       return;
     }
     if (this.state.timelineIndex !== this.state.timeline.length - 1) return;
-    if (!this.isMyTurn()) return;
     const result = this.game.getResult();
     if (result.status !== 'ongoing') return;
 
+    const myColor = this.net.getMyColor();
+    const isOnline = this.state.mode === 'online';
+    const isMyTurn = this.isMyTurn();
+    const isOnlinePremove = isOnline && !isMyTurn && Boolean(myColor);
+
+    if (!isMyTurn && !isOnlinePremove) return;
+
     const piece = this.game.getPiece(square);
-    const turn = this.game.getTurn();
+    const activeColor = isOnlinePremove ? myColor! : this.game.getTurn();
 
     if (this.state.leadingSquare) {
       if (this.state.legalTargets.has(square)) {
+        if (isOnlinePremove) {
+          // Commit premove!
+          this.state.premove = {
+            from: this.state.leadingSquare,
+            to: square,
+            followers: [...this.state.followerSquares],
+          };
+          this.render();
+          return;
+        }
         void this.attemptMove(this.state.leadingSquare, square);
         return;
       }
@@ -384,7 +403,7 @@ export class ChessBoardView {
         return;
       }
 
-      if (piece && piece.color === turn && square !== this.state.leadingSquare) {
+      if (piece && piece.color === activeColor && square !== this.state.leadingSquare) {
         const selectable = getSelectableFollowers(this.state, this.game);
         if (selectable.includes(square)) {
           this.toggleFollower(square);
@@ -409,7 +428,10 @@ export class ChessBoardView {
       return;
     }
 
-    if (piece && piece.color === turn) {
+    if (piece && piece.color === activeColor) {
+      if (this.state.premove) {
+        this.state.premove = null;
+      }
       this.selectLeading(square);
     }
   }
@@ -427,6 +449,13 @@ export class ChessBoardView {
       pruneDisconnectedFollowers(this.state, this.game);
     }
     this.refreshLegalTargets();
+    if (this.state.premove && this.state.leadingSquare === this.state.premove.from) {
+      this.state.premove = {
+        from: this.state.premove.from,
+        to: this.state.premove.to,
+        followers: [...this.state.followerSquares],
+      };
+    }
     this.render();
   }
 
@@ -444,12 +473,15 @@ export class ChessBoardView {
     }
     const context =
       this.state.followerSquares.size > 0 ? { followers: [...this.state.followerSquares] } : undefined;
+    const forColor =
+      this.state.mode === 'online' && !this.isMyTurn() ? (this.net.getMyColor() ?? undefined) : undefined;
     this.state.legalTargets = new Set(
-      this.game.getLegalMoves(this.state.leadingSquare, context).map((m) => m.to),
+      this.game.getLegalMoves(this.state.leadingSquare, context, forColor).map((m) => m.to),
     );
   }
 
   private clearSelection(): void {
+    this.state.premove = null;
     this.state.clearSelection();
     renderBoard(this.boardEl, this.state, this.game, {
       onDragStart: (e, sq) => this.dragDropMgr.onDragStart(e, sq),
@@ -475,8 +507,16 @@ export class ChessBoardView {
         this.hintEl.textContent = 'Ожидание подключения соперника по сети...';
         return;
       }
+      if (this.state.premove) {
+        const followersText =
+          this.state.premove.followers.length > 0
+            ? ` (прицеп: ${this.state.premove.followers.join(', ')})`
+            : '';
+        this.hintEl.textContent = `Запланирован премув: ${this.state.premove.from} → ${this.state.premove.to}${followersText}. ПКМ для отмены.`;
+        return;
+      }
       if (this.game.getTurn() !== this.net.getMyColor()) {
-        this.hintEl.textContent = 'Ожидание хода соперника...';
+        this.hintEl.textContent = 'Ожидание хода соперника... (вы можете сделать премув)';
         return;
       }
     }
@@ -582,6 +622,7 @@ export class ChessBoardView {
           snapshot: result.snapshot,
           whiteTimeMs: this.state.whiteTimeMs,
           blackTimeMs: this.state.blackTimeMs,
+          timestamp: Date.now(),
         });
       }
     }
@@ -589,6 +630,24 @@ export class ChessBoardView {
     if (result.ok && !wasDrag) {
       animateGroupMove(this.boardEl, result.move, 220);
     }
+  }
+
+  public tryExecutePremove(_arrivalTimestamp: number): void {
+    const premove = this.state.premove;
+    if (!premove) return;
+    this.state.premove = null;
+
+    const { from, to, promotion, followers } = premove;
+    const context = followers && followers.length > 0 ? { followers } : undefined;
+    const legalMoves = this.game.getLegalMoves(from, context);
+    const isLegal = legalMoves.some((m) => m.to === to);
+
+    if (!isLegal) {
+      this.render();
+      return;
+    }
+
+    this.executeMove(from, to, promotion, context);
   }
 
   private showTimeline(index: number): void {

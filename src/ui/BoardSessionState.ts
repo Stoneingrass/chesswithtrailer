@@ -1,10 +1,18 @@
-import type { GameSnapshot, Square } from '../core';
+import type { GameSnapshot, PieceType, Square } from '../core';
+
+export interface PremoveState {
+  from: Square;
+  to: Square;
+  promotion?: PieceType;
+  followers: Square[];
+}
 
 export class BoardSessionState {
   leadingSquare: Square | null = null;
   followerSquares = new Set<Square>();
   legalTargets = new Set<Square>();
   lastMoveSquares = new Set<Square>();
+  premove: PremoveState | null = null;
 
   takebackState: 'idle' | 'offered' | 'received' = 'idle';
   drawState: 'idle' | 'offered' | 'received' = 'idle';

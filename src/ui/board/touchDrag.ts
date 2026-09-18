@@ -1,4 +1,4 @@
-import type { GameController, Square } from '../../core';
+import type { Color, GameController, Square } from '../../core';
 import type { BoardSessionState } from '../BoardSessionState';
 import { createPieceImg } from '../pieceAssets';
 
@@ -10,15 +10,22 @@ export class TouchDragManager {
     private isMyTurn: () => boolean,
     private selectLeading: (sq: Square) => void,
     private attemptMove: (from: Square, to: Square) => Promise<void>,
+    private getMyColor: () => Color | null,
   ) {}
 
   onPointerDown(e: PointerEvent, square: Square): void {
     if (e.button !== 0) return;
     if (this.state.timelineIndex !== this.state.timeline.length - 1) return;
-    if (!this.isMyTurn()) return;
     if (this.game.getResult().status !== 'ongoing') return;
     const piece = this.game.getPiece(square);
-    if (!piece || piece.color !== this.game.getTurn()) return;
+    if (!piece) return;
+    const myColor = this.getMyColor();
+    const activeColor = this.isMyTurn()
+      ? this.game.getTurn()
+      : this.state.mode === 'online'
+        ? myColor
+        : null;
+    if (piece.color !== activeColor) return;
 
     this.state.touchDragFrom = square;
     this.state.touchDragStartX = e.clientX;
@@ -59,18 +66,8 @@ export class TouchDragManager {
       const targetSquare = targetCell?.dataset.square as Square | undefined;
 
       this.boardEl.querySelectorAll('.drag-over').forEach((c) => c.classList.remove('drag-over'));
-      if (targetSquare && targetSquare !== this.state.touchDragFrom) {
-        const context =
-          this.state.leadingSquare === this.state.touchDragFrom &&
-          this.state.followerSquares.size > 0
-            ? { followers: [...this.state.followerSquares] }
-            : undefined;
-        const allowed = this.game
-          .getLegalMoves(this.state.touchDragFrom, context)
-          .some((m) => m.to === targetSquare);
-        if (allowed && targetCell) {
-          targetCell.classList.add('drag-over');
-        }
+      if (targetSquare && targetSquare !== this.state.touchDragFrom && targetCell) {
+        targetCell.classList.add('drag-over');
       }
     }
   };
@@ -97,6 +94,23 @@ export class TouchDragManager {
       this.state.isTouchDragging = false;
 
       if (fromSquare && toSquare && fromSquare !== toSquare) {
+        if (!this.isMyTurn()) {
+          if (this.state.mode === 'online') {
+            const myColor = this.getMyColor();
+            const followers =
+              this.state.leadingSquare === fromSquare ? [...this.state.followerSquares] : [];
+            const context = followers.length > 0 ? { followers } : undefined;
+            const allowed = myColor
+              ? this.game.getLegalMoves(fromSquare, context, myColor).some((m) => m.to === toSquare)
+              : false;
+            if (allowed) {
+              this.state.premove = { from: fromSquare, to: toSquare, followers };
+              this.selectLeading(fromSquare);
+            }
+          }
+          return;
+        }
+
         const context =
           this.state.leadingSquare === fromSquare && this.state.followerSquares.size > 0
             ? { followers: [...this.state.followerSquares] }

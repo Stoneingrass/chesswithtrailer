@@ -5,6 +5,7 @@ import { loadTrailerOptions, saveTrailerOptions } from '../trailer/types';
 import { StandardChessRules } from './StandardChessRules';
 import type { TrailerCapabilities } from './TrailerCapabilities';
 import type {
+  Color,
   Move,
   MoveAttemptResult,
   Piece,
@@ -81,12 +82,16 @@ export class TrailerChessRules extends StandardChessRules implements TrailerCapa
 
   /** Фигуры своего цвета, непосредственно защищающие (атакующие) клетку. */
   getDirectProtectors(square: Square): Square[] {
-    return getDirectProtectors(square, this.getTurn(), (sq) => this.getPiece(sq));
+    const piece = this.getPiece(square);
+    if (!piece) return [];
+    return getDirectProtectors(square, piece.color, (sq) => this.getPiece(sq));
   }
 
   /** Фигуры своего цвета, защищающие клетку (включая рекурсивные цепочки, если включена опция). */
   getProtectors(square: Square): Square[] {
-    return getProtectors(square, this.options, this.getTurn(), (sq) => this.getPiece(sq));
+    const piece = this.getPiece(square);
+    if (!piece) return [];
+    return getProtectors(square, this.options, piece.color, (sq) => this.getPiece(sq));
   }
 
   /** Возвращает связанные фигуры для рокировки (король <-> ладья) */
@@ -103,26 +108,34 @@ export class TrailerChessRules extends StandardChessRules implements TrailerCapa
   }
 
   /** Псевдо-легальные ходы фигуры (без учета шаха собственному королю до сдвига прицепа). */
-  public getPseudoLegalMoves(square: Square): Move[] {
-    return getPseudoLegalMoves(square, this.getTurn(), this.chess, (sq) => this.getPiece(sq));
+  public getPseudoLegalMoves(square: Square, forColor?: Color): Move[] {
+    const turn = forColor ?? this.getTurn();
+    return getPseudoLegalMoves(square, turn, this.chess, (sq) => this.getPiece(sq));
   }
 
-  override getLegalMoves(square?: Square, context?: MoveContext): Move[] {
+  override getLegalMoves(square?: Square, context?: MoveContext, forColor?: Color): Move[] {
+    const turn = forColor ?? this.getTurn();
     if (!square) {
       const allMoves: Move[] = [];
-      const turn = this.getTurn();
       for (const sq of ALL_SQUARES) {
         const p = this.getPiece(sq);
         if (p && p.color === turn) {
-          allMoves.push(...this.getLegalMoves(sq, context));
+          allMoves.push(...this.getLegalMoves(sq, context, turn));
         }
       }
       return allMoves;
     }
 
-    const candidateMoves = this.getPseudoLegalMoves(square);
+    const candidateMoves = this.getPseudoLegalMoves(square, turn);
     const followers = context?.followers ?? [];
     const group = resolveFollowerGroup(square, followers, this.options.allowMultiFollower);
+
+    let chessInstance = this.chess;
+    if (forColor && forColor !== this.chess.turn()) {
+      const parts = this.chess.fen().split(' ');
+      parts[1] = forColor;
+      chessInstance = new Chess(parts.join(' '));
+    }
 
     return candidateMoves.filter((m) => {
       const validation = validateTrailerMove(
@@ -140,7 +153,7 @@ export class TrailerChessRules extends StandardChessRules implements TrailerCapa
         m.to,
         m.promotion,
         validation.followers,
-        this.chess,
+        chessInstance,
         (sq) => this.getPiece(sq),
       );
     });

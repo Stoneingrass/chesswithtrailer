@@ -1,4 +1,5 @@
-import type { GameController, Square } from '../../core';
+import type { GameController, Piece, Square } from '../../core';
+import { addDelta, getDelta } from '../../core';
 import type { BoardSessionState } from '../BoardSessionState';
 import { createPieceImg } from '../pieceAssets';
 import { getProtectionDepths } from './selection';
@@ -42,6 +43,28 @@ export function renderBoard(
     ? getProtectionDepths(state.leadingSquare, game)
     : new Map<Square, number>();
 
+  const ghostPositions = new Map<Square, { piece: Piece; isLeading: boolean }>();
+  const premoveOrigins = new Set<Square>();
+
+  if (state.premove) {
+    const { from, to, followers } = state.premove;
+    premoveOrigins.add(from);
+    const leadingPiece = game.getPiece(from);
+    if (leadingPiece) {
+      ghostPositions.set(to, { piece: leadingPiece, isLeading: true });
+    }
+
+    const { df, dr } = getDelta(from, to);
+    for (const fSq of followers) {
+      premoveOrigins.add(fSq);
+      const fPiece = game.getPiece(fSq);
+      const fTo = addDelta(fSq, df, dr);
+      if (fPiece && fTo) {
+        ghostPositions.set(fTo, { piece: fPiece, isLeading: false });
+      }
+    }
+  }
+
   for (const rank of displayRanks) {
     for (const file of displayFiles) {
       const square = `${file}${rank}` as Square;
@@ -68,6 +91,13 @@ export function renderBoard(
       if (state.legalTargets.has(square)) cell.classList.add('target');
       if (state.lastMoveSquares.has(square)) cell.classList.add('last-move');
 
+      if (premoveOrigins.has(square)) {
+        cell.classList.add('is-premove-from');
+      }
+      if (state.premove && state.premove.to === square) {
+        cell.classList.add('is-premove-to');
+      }
+
       if (
         state.leadingSquare &&
         protectionDepths.has(square) &&
@@ -80,20 +110,31 @@ export function renderBoard(
         cell.classList.add(`chain-depth-${d}`);
       }
 
-      const piece = game.getPiece(square);
-      if (piece) {
+      if (ghostPositions.has(square)) {
+        const { piece } = ghostPositions.get(square)!;
         const image = createPieceImg(piece.color, piece.type);
-        image.draggable = true;
-        image.addEventListener('dragstart', (event) => handlers.onDragStart(event, square));
-        image.addEventListener('dragend', () => handlers.clearDragState());
+        image.classList.add('is-premove-ghost');
         cell.appendChild(image);
+      } else if (premoveOrigins.has(square)) {
+        // Piece has moved away in premove ghost preview
+      } else {
+        const piece = game.getPiece(square);
+        if (piece) {
+          const image = createPieceImg(piece.color, piece.type);
+          image.draggable = true;
+          image.addEventListener('dragstart', (event) => handlers.onDragStart(event, square));
+          image.addEventListener('dragend', () => handlers.clearDragState());
+          cell.appendChild(image);
+        }
       }
 
       cell.addEventListener('dragover', (event) => handlers.onDragOver(event, square));
       cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
       cell.addEventListener('drop', (event) => handlers.onDrop(event, square));
+
       cell.addEventListener('pointerdown', (event) => handlers.onPointerDown(event, square));
       cell.addEventListener('click', () => handlers.onSquareClick(square));
+
       boardEl.appendChild(cell);
     }
   }

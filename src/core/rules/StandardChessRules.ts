@@ -115,10 +115,17 @@ export class StandardChessRules implements RuleSet {
     return this.currentResult;
   }
 
-  getLegalMoves(square?: Square, _context?: import('../trailer/types').MoveContext): Move[] {
+  getLegalMoves(square?: Square, _context?: import('../trailer/types').MoveContext, forColor?: Color): Move[] {
+    let chessInstance = this.chess;
+    if (forColor && forColor !== this.chess.turn()) {
+      const parts = this.chess.fen().split(' ');
+      parts[1] = forColor;
+      chessInstance = new Chess(parts.join(' '));
+    }
+
     const raw = square
-      ? this.chess.moves({ square: square as ChessJsSquare, verbose: true })
-      : this.chess.moves({ verbose: true });
+      ? chessInstance.moves({ square: square as ChessJsSquare, verbose: true })
+      : chessInstance.moves({ verbose: true });
 
     return raw.map((m) => ({
       from: toSquare(m.from),

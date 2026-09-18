@@ -13,6 +13,7 @@ export interface OnlineSessionHandlers {
   refreshLegalTargets: () => void;
   applyTakebackUndo: (undoCount: number) => void;
   startRematchGame: () => void;
+  tryExecutePremove?: (arrivalTimestamp: number) => void;
 }
 
 export class OnlineSessionManager {
@@ -77,8 +78,10 @@ export class OnlineSessionManager {
         this.handlers.refreshOptionsPanel();
         this.handlers.renderAll();
       } else if (msg.type === 'MOVE') {
+        const arrivalTimestamp = Date.now();
         if (msg.whiteTimeMs !== undefined) this.state.whiteTimeMs = msg.whiteTimeMs;
         if (msg.blackTimeMs !== undefined) this.state.blackTimeMs = msg.blackTimeMs;
+        this.state.lastClockTickTimestamp = arrivalTimestamp;
         this.state.isBrowsingHistory = true;
         try {
           this.game.loadSnapshot(msg.snapshot);
@@ -92,6 +95,7 @@ export class OnlineSessionManager {
           this.state.lastMoveSquares.add(f.from);
           this.state.lastMoveSquares.add(f.to);
         }
+        this.handlers.tryExecutePremove?.(arrivalTimestamp);
         this.handlers.renderAll();
       } else if (msg.type === 'CHANGE_OPTIONS') {
         if (!this.state.isOptionsLocked) {

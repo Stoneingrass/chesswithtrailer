@@ -68,8 +68,8 @@ export class GameController {
     return this.rules.getResult();
   }
 
-  getLegalMoves(square?: Square, context?: MoveContext): Move[] {
-    return this.rules.getLegalMoves(square, context);
+  getLegalMoves(square?: Square, context?: MoveContext, forColor?: Color): Move[] {
+    return this.rules.getLegalMoves(square, context, forColor);
   }
 
   tryMove(

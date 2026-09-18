@@ -11,6 +11,13 @@ export function getPseudoLegalMoves(
   const leadingPiece = getPiece(square);
   if (!leadingPiece || leadingPiece.color !== turn) return [];
 
+  let queryChess = chess;
+  if (chess.turn() !== turn) {
+    const parts = chess.fen().split(' ');
+    parts[1] = turn;
+    queryChess = new Chess(parts.join(' '));
+  }
+
   if (leadingPiece.type === 'k') {
     const moves: Move[] = [];
     const rStr = square[1];
@@ -30,7 +37,7 @@ export function getPseudoLegalMoves(
 
     // Рокировка (если есть права и свободные поля)
     if (square === `e${r}`) {
-      const movesRaw = chess.moves({ square: square as ChessJsSquare, verbose: true });
+      const movesRaw = queryChess.moves({ square: square as ChessJsSquare, verbose: true });
       for (const m of movesRaw) {
         if (m.flags.includes('k') || m.flags.includes('q')) {
           moves.push({
@@ -52,7 +59,7 @@ export function getPseudoLegalMoves(
     const qRookSq = `a${rank}` as Square;
 
     if (square === kRookSq || square === qRookSq) {
-      const kingMoves = chess.moves({ square: kingSq as ChessJsSquare, verbose: true });
+      const kingMoves = queryChess.moves({ square: kingSq as ChessJsSquare, verbose: true });
       if (square === kRookSq && kingMoves.some((m) => m.flags.includes('k'))) {
         moves.push({ from: square, to: `f${rank}` as Square, isCastle: true });
       } else if (square === qRookSq && kingMoves.some((m) => m.flags.includes('q'))) {
@@ -60,7 +67,7 @@ export function getPseudoLegalMoves(
       }
     }
 
-    const tempChess = new Chess(chess.fen());
+    const tempChess = new Chess(queryChess.fen());
     if (kingSq && getPiece(kingSq)?.type === 'k') {
       tempChess.remove(kingSq as ChessJsSquare);
     }
@@ -80,7 +87,7 @@ export function getPseudoLegalMoves(
   }
 
   // Для остальных фигур: временно убираем короля активного цвета
-  const tempChess = new Chess(chess.fen());
+  const tempChess = new Chess(queryChess.fen());
   const kingSq = ALL_SQUARES.find((sq) => {
     const p = getPiece(sq);
     return p?.type === 'k' && p.color === turn;

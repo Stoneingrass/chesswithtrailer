@@ -1,4 +1,4 @@
-import type { GameController, Square } from '../../core';
+import type { Color, GameController, Square } from '../../core';
 import type { BoardSessionState } from '../BoardSessionState';
 import { createPieceImg } from '../pieceAssets';
 
@@ -12,6 +12,7 @@ export class DragDropManager {
     private isMyTurn: () => boolean,
     private selectLeading: (sq: Square) => void,
     private attemptMove: (from: Square, to: Square) => Promise<void>,
+    private getMyColor: () => Color | null,
   ) {}
 
   createDragPreview(event: DragEvent, leadingSq: Square, followerSqs: Set<Square>): void {
@@ -78,12 +79,18 @@ export class DragDropManager {
       event.preventDefault();
       return;
     }
-    if (!this.isMyTurn()) {
+    const piece = this.game.getPiece(square);
+    if (!piece) {
       event.preventDefault();
       return;
     }
-    const piece = this.game.getPiece(square);
-    if (!piece || piece.color !== this.game.getTurn()) {
+    const myColor = this.getMyColor();
+    const activeColor = this.isMyTurn()
+      ? this.game.getTurn()
+      : this.state.mode === 'online'
+        ? myColor
+        : null;
+    if (piece.color !== activeColor) {
       event.preventDefault();
       return;
     }
@@ -102,25 +109,38 @@ export class DragDropManager {
 
   onDragOver(event: DragEvent, square: Square): void {
     const from = this.state.draggedSquare;
-    if (!from || from === square || !this.isMyTurn()) return;
-    const context =
-      this.state.leadingSquare === from && this.state.followerSquares.size > 0
-        ? { followers: [...this.state.followerSquares] }
-        : undefined;
-    const allowed = this.game.getLegalMoves(from, context).some((move) => move.to === square);
-    if (allowed) {
-      event.preventDefault();
-      event.dataTransfer!.dropEffect = 'move';
-      (event.currentTarget as HTMLElement).classList.add('drag-over');
-    }
+    if (!from || from === square) return;
+    const isOnlinePremove = this.state.mode === 'online' && !this.isMyTurn();
+    if (!this.isMyTurn() && !isOnlinePremove) return;
+
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'move';
+    (event.currentTarget as HTMLElement).classList.add('drag-over');
   }
 
   onDrop(event: DragEvent, to: Square): void {
     event.preventDefault();
-    if (!this.isMyTurn()) return;
     const from = this.state.draggedSquare;
     this.clearDragState();
     if (!from || from === to) return;
+
+    if (!this.isMyTurn()) {
+      if (this.state.mode === 'online') {
+        const myColor = this.getMyColor();
+        const followers =
+          this.state.leadingSquare === from ? [...this.state.followerSquares] : [];
+        const context = followers.length > 0 ? { followers } : undefined;
+        const allowed = myColor
+          ? this.game.getLegalMoves(from, context, myColor).some((m) => m.to === to)
+          : false;
+        if (allowed) {
+          this.state.premove = { from, to, followers };
+          this.selectLeading(from);
+        }
+      }
+      return;
+    }
+
     const context =
       this.state.leadingSquare === from && this.state.followerSquares.size > 0
         ? { followers: [...this.state.followerSquares] }
