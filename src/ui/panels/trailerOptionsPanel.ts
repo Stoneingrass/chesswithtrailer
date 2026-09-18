@@ -14,6 +14,9 @@ export const TRAILER_OPTION_LABELS: Record<keyof TrailerOptions, string> = {
 export function renderOptionsPanel(options: TrailerOptions | null): string {
   if (!options) return '';
 
+  const isCaptureSubDisabled = !options.allowFollowerCaptureWithoutLeadingCapture;
+  const isMultiSubDisabled = !options.allowMultiFollower;
+
   const fields: Array<keyof TrailerOptions> = [
     'allowFollowerCaptureWithoutLeadingCapture',
     'allowGroupCapture',
@@ -27,21 +30,32 @@ export function renderOptionsPanel(options: TrailerOptions | null): string {
 
   const items = fields
     .map((key) => {
+      const isIndented =
+        key === 'allowRecursiveGroup' ||
+        key === 'allowGroupCapture' ||
+        key === 'allowFollowerFriendlyCapture';
+
+      const isDisabled =
+        (key === 'allowRecursiveGroup' && isMultiSubDisabled) ||
+        ((key === 'allowGroupCapture' || key === 'allowFollowerFriendlyCapture') &&
+          isCaptureSubDisabled);
+
       const checked = options[key] ? 'checked' : '';
+      const disabledAttr = isDisabled ? 'disabled' : '';
       const label = TRAILER_OPTION_LABELS[key];
+
       return `
-        <label class="trailer-option-item">
-          <input type="checkbox" data-option="${key}" ${checked} />
+        <label class="option-item ${isIndented ? 'is-indented' : ''} ${isDisabled ? 'is-disabled' : ''}">
+          <input type="checkbox" data-opt="${key}" ${checked} ${disabledAttr} />
           <span>${label}</span>
-        </label>
-      `;
+        </label>`;
     })
     .join('');
 
   return `
-    <div class="trailer-options-panel">
-      <h3>Опции "Прицепа"</h3>
-      <div class="trailer-options-list">${items}</div>
-    </div>
-  `;
+    <div class="options-panel">
+      <h2>Опции "Прицепа"</h2>
+      ${items}
+      <button type="button" class="btn btn-secondary btn-sm btn-block reset-options-btn" style="margin-top: 0.6rem;">Сбросить опции</button>
+    </div>`;
 }

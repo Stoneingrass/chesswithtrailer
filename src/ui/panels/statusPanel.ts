@@ -10,9 +10,9 @@ export function resultMessage(result: GameResult): string {
     case 'stalemate':
       return 'Пат — ничья.';
     case 'draw':
-      return `Ничья (${result.reason === 'agreement' ? 'соглашение сторон' : result.reason}).`;
+      return `Ничья (${result.reason === 'agreement' ? 'соглашение' : result.reason}).`;
     case 'resigned':
-      return `Сдались. Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
+      return `${result.winner === 'w' ? 'Чёрные' : 'Белые'} сдались. Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
   }
 }
 

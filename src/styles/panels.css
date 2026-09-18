@@ -1,9 +1,9 @@
 .status-panel {
   background: var(--surface);
   border-radius: var(--radius);
-  padding: 0.65rem 0.85rem;
+  padding: 0.5rem 0.75rem;
   flex-shrink: 0;
-  min-height: 86px;
+  min-height: 60px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -32,7 +32,10 @@
 .options-panel {
   background: var(--surface);
   border-radius: var(--radius);
-  padding: 0.8rem 0.9rem;
+  padding: 0.75rem 0.85rem;
+  height: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .options-panel h2 {
@@ -72,7 +75,7 @@
 }
 
 .game-status {
-  margin-top: 0.35rem;
+  margin-top: 0.2rem;
   font-size: 0.85rem;
   color: var(--text-muted);
 }
@@ -80,6 +83,9 @@
 .game-status.game-over {
   color: var(--accent);
   font-weight: 600;
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+  line-height: 1.25;
 }
 
 .history-panel {

@@ -19,7 +19,7 @@ import { showPromotionDialog } from './board/promotionDialog';
 import { animateBoardTransition, animateGroupMove, captureBoardState } from './board/moveAnimator';
 
 import { OnlineSessionManager } from './net/onlineSession';
-import { clearPersistedState, loadPersistedState, savePersistedState } from './persist/gameStateStorage';
+import { clearPersistedState, savePersistedState } from './persist/gameStateStorage';
 import { switchMode } from './modeSwitch';
 
 export class ChessBoardView {
@@ -63,10 +63,17 @@ export class ChessBoardView {
     this.netSlotEl = this.container.querySelector('.net-room-slot')!;
     this.headerSubEl = this.container.querySelector('.game-subtitle')!;
 
+    clearPersistedState();
+    this.game.reset();
+    this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
     this.state.timeline = [this.game.getSnapshot()];
     this.state.timelineIndex = 0;
-
-    loadPersistedState(this.game, this.state);
+    this.state.lastMoveSquares.clear();
+    this.state.clearSelection();
+    this.state.drawCooldownStartMoveCount = null;
+    this.state.drawState = 'idle';
+    this.state.takebackState = 'idle';
+    this.state.resignState = 'idle';
 
     this.dragDropMgr = new DragDropManager(
       this.boardEl,
@@ -107,8 +114,18 @@ export class ChessBoardView {
     this.container.querySelector('[data-action="reset"]')!.addEventListener('click', () => {
       this.cancelPendingActions();
       this.state.drawCooldownStartMoveCount = null;
+      this.state.drawState = 'idle';
+      this.state.takebackState = 'idle';
+      this.state.resignState = 'idle';
       this.game.reset();
+      this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
+      this.state.timeline = [this.game.getSnapshot()];
+      this.state.timelineIndex = 0;
+      this.state.lastMoveSquares.clear();
+      this.state.clearSelection();
       clearPersistedState();
+      this.refreshOptionsPanel();
+      this.render();
       if (this.state.mode === 'online' && this.net.isConnected()) {
         this.net.sendMessage({ type: 'RESET_GAME', snapshot: this.game.getSnapshot() });
       }

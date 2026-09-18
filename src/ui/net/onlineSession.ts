@@ -1,8 +1,10 @@
-import type { GameController, TrailerOptions } from '../../core';
+import type { GameController } from '../../core';
+import { DEFAULT_TRAILER_OPTIONS } from '../../core';
 import type { NetworkManager } from '../../net';
 import type { BoardSessionState } from '../BoardSessionState';
 import { renderNetSlot } from '../panels/netRoomPanel';
 import { updateGameActionButtons } from '../panels/gameActionsPanel';
+import { clearPersistedState } from '../persist/gameStateStorage';
 
 export interface OnlineSessionHandlers {
   renderAll: () => void;
@@ -41,6 +43,9 @@ export class OnlineSessionManager {
     this.net.on('message', (msg) => {
       if (msg.type === 'INIT_GAME') {
         this.state.drawCooldownStartMoveCount = null;
+        this.state.drawState = 'idle';
+        this.state.takebackState = 'idle';
+        this.state.resignState = 'idle';
         this.state.isBrowsingHistory = true;
         try {
           this.game.loadSnapshot(msg.snapshot);
@@ -74,6 +79,10 @@ export class OnlineSessionManager {
         this.handlers.renderAll();
       } else if (msg.type === 'RESET_GAME') {
         this.state.drawCooldownStartMoveCount = null;
+        this.state.drawState = 'idle';
+        this.state.takebackState = 'idle';
+        this.state.resignState = 'idle';
+        this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
         this.state.isBrowsingHistory = true;
         try {
           this.game.loadSnapshot(msg.snapshot);
@@ -83,6 +92,8 @@ export class OnlineSessionManager {
         this.state.timeline = [msg.snapshot];
         this.state.timelineIndex = 0;
         this.state.clearSelection();
+        this.handlers.refreshOptionsPanel();
+        this.handlers.renderAll();
       } else if (msg.type === 'ERROR') {
         this.state.netErrorMessage = msg.message;
         this.renderNet();
@@ -123,9 +134,24 @@ export class OnlineSessionManager {
 
   async createRoom(): Promise<void> {
     try {
+      this.game.reset();
+      this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
+      this.state.timeline = [this.game.getSnapshot()];
+      this.state.timelineIndex = 0;
+      this.state.lastMoveSquares.clear();
+      this.state.clearSelection();
+      this.state.drawCooldownStartMoveCount = null;
+      this.state.drawState = 'idle';
+      this.state.takebackState = 'idle';
+      this.state.resignState = 'idle';
+
+      clearPersistedState();
+      this.handlers.refreshOptionsPanel();
+      this.handlers.renderAll();
+
       await this.net.createRoom(() => ({
         snapshot: this.game.getSnapshot(),
-        options: this.game.getTrailerOptions() ?? ({} as TrailerOptions),
+        options: this.game.getTrailerOptions() ?? { ...DEFAULT_TRAILER_OPTIONS },
       }));
       this.renderNet();
     } catch (err) {

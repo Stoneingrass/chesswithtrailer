@@ -112,12 +112,13 @@ body {
 
 .panel-left {
   width: 290px;
-  max-height: var(--board-size);
+  height: auto;
+  max-height: none;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   flex-shrink: 0;
-  overflow-y: auto;
+  overflow-y: visible;
 }
 
 .panel-left::-webkit-scrollbar {

@@ -5,6 +5,10 @@ const SAVE_KEY = 'omnichess-saved-game-state';
 
 export function savePersistedState(game: GameController, state: BoardSessionState): void {
   try {
+    if (game.getResult().status !== 'ongoing') {
+      clearPersistedState();
+      return;
+    }
     const data = {
       snapshot: game.getSnapshot(),
       timeline: state.timeline,
