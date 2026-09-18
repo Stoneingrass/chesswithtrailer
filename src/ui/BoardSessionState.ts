@@ -29,6 +29,19 @@ export class BoardSessionState {
 
   mode: 'local' | 'online' = 'local';
   netErrorMessage: string | null = null;
+  partnerDisconnected = false;
+  disconnectReason: 'self' | 'peer' | null = null;
+
+  pendingLockOptions = false;
+  preferredColor: 'w' | 'b' | 'random' = 'random';
+  isOptionsLocked = false;
+  clockEnabled = false;
+  clockInitialMinutes = 5;
+  clockIncrementSeconds = 3;
+  whiteTimeMs = 300000;
+  blackTimeMs = 300000;
+  clockInterval: ReturnType<typeof setInterval> | null = null;
+  lastClockTickTimestamp: number | null = null;
 
   clearSelection(): void {
     this.leadingSquare = null;

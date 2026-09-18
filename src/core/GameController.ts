@@ -132,6 +132,18 @@ export class GameController {
     this.emit({ type: 'reset', snapshot: this.rules.getSnapshot() });
   }
 
+  /** Истёк таймер */
+  timeout(winner: Color): void {
+    const result: GameResult = { status: 'timeout', winner };
+    const current = this.rules.getSnapshot();
+    const timeoutSnapshot: GameSnapshot = {
+      ...current,
+      result,
+    };
+    this.rules.loadState(timeoutSnapshot);
+    this.emit({ type: 'gameOver', result });
+  }
+
   isInCheck(): boolean {
     return this.rules.isInCheck();
   }

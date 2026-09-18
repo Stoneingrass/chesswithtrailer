@@ -38,7 +38,8 @@ export type GameResult =
   | { status: 'checkmate'; winner: Color }
   | { status: 'stalemate' }
   | { status: 'draw'; reason: 'stalemate' | 'threefold' | 'fifty-move' | 'insufficient' | 'agreement' }
-  | { status: 'resigned'; winner: Color };
+  | { status: 'resigned'; winner: Color }
+  | { status: 'timeout'; winner: Color };
 
 /** Сериализуемое состояние — пригодно для синхронизации в мультиплеере. */
 export interface GameSnapshot {

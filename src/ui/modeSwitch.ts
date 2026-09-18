@@ -65,6 +65,8 @@ export function switchMode(
   state.drawState = 'idle';
   state.takebackState = 'idle';
   state.resignState = 'idle';
+  state.disconnectReason = null;
+  state.partnerDisconnected = false;
   clearPersistedState();
 
   renderAll();

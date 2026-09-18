@@ -26,6 +26,18 @@ export function renderBoard(
   const displayFiles = state.flipped ? [...FILES].reverse() : FILES;
   const displayRanks = state.flipped ? [...RANKS].reverse() : RANKS;
 
+  const boardContainer = boardEl.closest('.board-container');
+  if (boardContainer) {
+    const coordsBottom = boardContainer.querySelector('.coords-bottom');
+    const coordsRight = boardContainer.querySelector('.coords-right');
+    if (coordsBottom) {
+      coordsBottom.innerHTML = displayFiles.map((f) => `<span>${f}</span>`).join('');
+    }
+    if (coordsRight) {
+      coordsRight.innerHTML = displayRanks.map((r) => `<span>${r}</span>`).join('');
+    }
+  }
+
   const protectionDepths = state.leadingSquare
     ? getProtectionDepths(state.leadingSquare, game)
     : new Map<Square, number>();

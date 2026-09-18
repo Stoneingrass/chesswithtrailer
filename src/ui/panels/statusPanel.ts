@@ -6,13 +6,15 @@ export function resultMessage(result: GameResult): string {
     case 'ongoing':
       return '';
     case 'checkmate':
-      return `🏆 Мат! Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
+      return `Мат! Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
     case 'stalemate':
-      return '🤝 Пат — ничья.';
+      return 'Пат — ничья.';
     case 'draw':
-      return `🤝 Ничья (${result.reason === 'agreement' ? 'соглашение' : result.reason}).`;
+      return `Ничья (${result.reason === 'agreement' ? 'соглашение' : result.reason}).`;
     case 'resigned':
-      return `🏳 ${result.winner === 'w' ? 'Чёрные' : 'Белые'} сдались. Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
+      return `${result.winner === 'w' ? 'Чёрные' : 'Белые'} сдались. Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
+    case 'timeout':
+      return `Истёк таймер! Победили ${result.winner === 'w' ? 'белые' : 'чёрные'}.`;
   }
 }
 

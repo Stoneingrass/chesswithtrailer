@@ -4,6 +4,18 @@ export type PlayerRole = 'host' | 'guest';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'waiting_for_peer' | 'connected' | 'error';
 
+export interface ClockSettings {
+  enabled: boolean;
+  initialMinutes: number;
+  incrementSeconds: number;
+}
+
+export interface RoomSettings {
+  lockOptions: boolean;
+  clock: ClockSettings;
+  preferredColor?: 'w' | 'b' | 'random';
+}
+
 export type NetworkMessage =
   | {
       type: 'INIT_GAME';
@@ -11,11 +23,14 @@ export type NetworkMessage =
       options: TrailerOptions;
       hostColor: Color;
       guestColor: Color;
+      roomSettings?: RoomSettings;
     }
   | {
       type: 'MOVE';
       move: Move;
       snapshot: GameSnapshot;
+      whiteTimeMs?: number;
+      blackTimeMs?: number;
     }
   | {
       type: 'CHANGE_OPTIONS';
@@ -76,6 +91,10 @@ export type NetworkMessage =
     }
   | {
       type: 'REMATCH_CANCEL';
+    }
+  | {
+      type: 'TIMEOUT';
+      winner: Color;
     };
 
 export interface NetworkEvents {

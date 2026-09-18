@@ -14,12 +14,16 @@ export function getGameLayoutHtml(ruleSetName: string, optionsPanelHtml: string)
       </header>
       <div class="game-body">
         <aside class="panel-left">
-          <div class="net-room-slot"></div>
+          <div class="net-room-connected-slot"></div>
           <div class="trailer-options-slot">${optionsPanelHtml}</div>
         </aside>
         <main class="board-panel">
-          <div class="board-wrapper">
-            <div class="board" role="grid" aria-label="Шахматная доска"></div>
+          <div class="board-container">
+            <div class="board-wrapper">
+              <div class="board" role="grid" aria-label="Шахматная доска"></div>
+              <div class="coords-right"></div>
+            </div>
+            <div class="coords-bottom"></div>
           </div>
           <div class="promotion-dialog hidden" role="dialog" aria-label="Выбор фигуры для превращения">
             <p>Превращение пешки</p>
@@ -27,6 +31,8 @@ export function getGameLayoutHtml(ruleSetName: string, optionsPanelHtml: string)
           </div>
         </main>
         <aside class="panel-right">
+          <div class="clock-top-slot" style="display: none;"></div>
+          <div class="disconnect-panel-slot" style="display: none;"></div>
           <div class="status-panel">
             <div class="turn-indicator"></div>
             <div class="selection-hint"></div>
@@ -46,29 +52,29 @@ export function getGameLayoutHtml(ruleSetName: string, optionsPanelHtml: string)
             <div class="timeline-status"></div>
             <div class="game-action-buttons hidden-action-block">
               <button type="button" class="btn btn-action action-takeback" data-action="takeback" title="Предложение возврата хода">
-                <span class="action-icon">↺</span><span class="action-label">Ход назад</span>
+                <span class="action-label">Ход назад</span>
               </button>
               <button type="button" class="btn btn-action action-draw" data-action="draw" title="Предложение ничьей">
-                <span class="action-icon">🤝</span><span class="action-label">Ничья</span>
+                <span class="action-label">Ничья</span>
               </button>
               <button type="button" class="btn btn-action action-resign" data-action="resign" title="Сдаться">
-                <span class="action-icon">🏳</span><span class="action-label">Сдаться</span>
+                <span class="action-label">Сдаться</span>
               </button>
             </div>
             <div class="rematch-action-block hidden-action-block">
               <button type="button" class="btn btn-action action-rematch" data-action="rematch" title="Предложение реванша">
-                <span class="action-icon">⚔</span><span class="action-label">Реванш</span>
+                <span class="action-label">Реванш</span>
               </button>
             </div>
             <div class="offer-proposal-bar hidden-action-block">
               <button type="button" class="btn btn-proposal btn-accept" data-action="proposal-accept" title="Согласиться">
-                <span class="action-icon">✔</span><span class="action-label">Да</span>
+                <span class="action-label">Да</span>
               </button>
               <div class="proposal-label-box">
                 <span class="proposal-text"></span>
               </div>
               <button type="button" class="btn btn-proposal btn-reject" data-action="proposal-reject" title="Отклонить">
-                <span class="action-icon">✖</span><span class="action-label">Нет</span>
+                <span class="action-label">Нет</span>
               </button>
             </div>
             <div class="button-group">
@@ -76,8 +82,23 @@ export function getGameLayoutHtml(ruleSetName: string, optionsPanelHtml: string)
               <button type="button" class="btn btn-primary" data-action="reset">Новая партия</button>
             </div>
           </div>
+          <div class="clock-bottom-slot" style="display: none;"></div>
         </aside>
       </div>
+
+      <!-- Popup Modal Window for Online Room Creation & Connection -->
+      <div class="net-room-modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Игра по сети">
+        <div class="net-room-modal">
+          <div class="net-room-modal-header">
+            <h2>Игра по сети</h2>
+            <button type="button" class="net-room-close-btn" aria-label="Закрыть">&times;</button>
+          </div>
+          <div class="net-room-modal-body">
+            <div class="net-room-slot"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="help-modal-overlay hidden" role="dialog" aria-modal="true" aria-label="Правила игры">
         <div class="help-modal">
           <div class="help-modal-header">
@@ -86,7 +107,7 @@ export function getGameLayoutHtml(ruleSetName: string, optionsPanelHtml: string)
           </div>
           <div class="help-modal-body">
             <section class="help-section">
-              <h3>♟️ Основная механика «Прицепа»</h3>
+              <h3>Основная механика «Прицепа»</h3>
               <p>Вы делаете ход одной <strong>ведущей фигурой</strong>. Любые ваши фигуры, непосредственно защищающие ведущую (или связанные с ней цепочкой защиты), могут быть выбраны в качестве <strong>ведомых («прицепа»)</strong>.</p>
               <p>При совершении хода ведущей фигурой все выбранные ведомые фигуры автоматически смещаются на тот же вектор <code>(Δx, Δy)</code>.</p>
             </section>

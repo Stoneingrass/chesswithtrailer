@@ -41,13 +41,7 @@ export const DEFAULT_TRAILER_OPTIONS: TrailerOptions = {
 export const TRAILER_OPTIONS_STORAGE_KEY = 'omnichess-trailer-options';
 
 export function loadTrailerOptions(): TrailerOptions {
-  try {
-    const raw = localStorage.getItem(TRAILER_OPTIONS_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_TRAILER_OPTIONS };
-    return { ...DEFAULT_TRAILER_OPTIONS, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_TRAILER_OPTIONS };
-  }
+  return { ...DEFAULT_TRAILER_OPTIONS };
 }
 
 export function saveTrailerOptions(options: TrailerOptions): void {

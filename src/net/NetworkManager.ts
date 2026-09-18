@@ -1,6 +1,6 @@
 import { Peer, type DataConnection } from 'peerjs';
 import type { Color, GameSnapshot, TrailerOptions } from '../core';
-import type { ConnectionStatus, NetworkEvents, NetworkMessage, PlayerRole } from './types';
+import type { ConnectionStatus, NetworkEvents, NetworkMessage, PlayerRole, RoomSettings } from './types';
 
 const ROOM_PREFIX = 'omnichess-room-';
 
@@ -21,8 +21,20 @@ export class NetworkManager {
   private myColor: Color | null = null;
   private roomCode: string | null = null;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private missedPings = 0;
+  private isDisconnectingLocally = false;
+  private preferredColor: 'w' | 'b' | 'random' = 'random';
 
   private listeners: Partial<NetworkEvents> = {};
+
+  constructor() {
+    window.addEventListener('beforeunload', () => {
+      this.disconnect();
+    });
+    window.addEventListener('pagehide', () => {
+      this.disconnect();
+    });
+  }
 
   on<K extends keyof NetworkEvents>(event: K, fn: NetworkEvents[K]): void {
     this.listeners[event] = fn;
@@ -57,12 +69,17 @@ export class NetworkManager {
     return this.status === 'connected' && this.conn !== null && this.conn.open;
   }
 
-  async createRoom(getInitialState: () => { snapshot: GameSnapshot; options: TrailerOptions }): Promise<string> {
+  async createRoom(getInitialState: () => { snapshot: GameSnapshot; options: TrailerOptions; roomSettings?: RoomSettings }): Promise<string> {
     this.disconnect();
     const code = generateRoomCode();
     this.roomCode = code;
     this.role = 'host';
-    this.myColor = Math.random() < 0.5 ? 'w' : 'b';
+
+    const { roomSettings } = getInitialState();
+    const pref = roomSettings?.preferredColor ?? 'random';
+    this.preferredColor = pref;
+    this.myColor = pref === 'random' ? null : pref;
+
     this.updateStatus('waiting_for_peer', 'Ожидание второго игрока...');
 
     return new Promise((resolve, reject) => {
@@ -102,7 +119,7 @@ export class NetworkManager {
     const cleanCode = code.trim().toUpperCase();
     this.roomCode = cleanCode;
     this.role = 'guest';
-    this.myColor = 'b';
+    this.myColor = null;
     this.updateStatus('connecting', 'Подключение к комнате...');
 
     return new Promise((resolve, reject) => {
@@ -135,6 +152,7 @@ export class NetworkManager {
   }
 
   disconnect(): void {
+    this.isDisconnectingLocally = true;
     this.stopPingHeartbeat();
     if (this.conn) {
       try {
@@ -152,15 +170,24 @@ export class NetworkManager {
     this.myColor = null;
     this.roomCode = null;
     this.updateStatus('disconnected');
+    this.isDisconnectingLocally = false;
   }
 
-  private setupConnection(getInitialState: () => { snapshot: GameSnapshot; options: TrailerOptions }): void {
+  private setupConnection(getInitialState: () => { snapshot: GameSnapshot; options: TrailerOptions; roomSettings?: RoomSettings }): void {
     if (!this.conn) return;
 
     this.conn.on('open', () => {
       this.updateStatus('connected');
-      const { snapshot, options } = getInitialState();
-      const hostColor = this.myColor ?? 'w';
+      const { snapshot, options, roomSettings } = getInitialState();
+      let hostColor: Color;
+      if (this.preferredColor === 'w') {
+        hostColor = 'w';
+      } else if (this.preferredColor === 'b') {
+        hostColor = 'b';
+      } else {
+        hostColor = Math.random() < 0.5 ? 'w' : 'b';
+      }
+      this.myColor = hostColor;
       const guestColor: Color = hostColor === 'w' ? 'b' : 'w';
       this.sendMessage({
         type: 'INIT_GAME',
@@ -168,6 +195,7 @@ export class NetworkManager {
         options,
         hostColor,
         guestColor,
+        roomSettings,
       });
       this.listeners.partnerConnected?.(hostColor);
     });
@@ -177,16 +205,15 @@ export class NetworkManager {
     });
 
     this.conn.on('close', () => {
-      this.stopPingHeartbeat();
-      this.updateStatus('waiting_for_peer', 'Соперник отключился. Ожидание...');
-      this.listeners.partnerDisconnected?.();
+      this.handleRemoteDisconnect();
     });
 
     this.conn.on('error', (err) => {
       console.error('Connection error:', err);
-      this.stopPingHeartbeat();
-      this.updateStatus('error', 'Ошибка соединения с соперником');
+      this.handleRemoteDisconnect();
     });
+
+    this.attachIceMonitoring();
   }
 
   private setupGuestConnection(resolve: () => void, reject: (err: unknown) => void): void {
@@ -207,20 +234,49 @@ export class NetworkManager {
     });
 
     this.conn.on('close', () => {
-      this.stopPingHeartbeat();
-      this.updateStatus('disconnected', 'Соединение с хостом разорвано');
-      this.listeners.partnerDisconnected?.();
+      this.handleRemoteDisconnect();
     });
 
     this.conn.on('error', (err) => {
       console.error('Guest connection error:', err);
-      this.stopPingHeartbeat();
-      this.updateStatus('error', 'Не удалось связаться с комнатой');
+      this.handleRemoteDisconnect();
       reject(err);
     });
+
+    this.attachIceMonitoring();
+  }
+
+  private attachIceMonitoring(): void {
+    const pc = (this.conn as any)?.peerConnection as RTCPeerConnection | undefined;
+    if (pc) {
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+          this.handleRemoteDisconnect();
+        }
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          this.handleRemoteDisconnect();
+        }
+      };
+    }
+  }
+
+  private handleRemoteDisconnect(): void {
+    if (this.isDisconnectingLocally) return;
+    if (this.status === 'disconnected' && !this.conn) return;
+
+    this.stopPingHeartbeat();
+    if (this.role === 'host') {
+      this.updateStatus('waiting_for_peer', 'Соперник отключился. Ожидание...');
+    } else {
+      this.updateStatus('disconnected', 'Соединение с хостом разорвано');
+    }
+    this.listeners.partnerDisconnected?.();
   }
 
   private handleData(msg: NetworkMessage): void {
+    this.missedPings = 0;
     if (msg.type === 'PING') {
       this.sendMessage({ type: 'PONG' });
       return;
@@ -233,11 +289,18 @@ export class NetworkManager {
 
   private startPingHeartbeat(): void {
     this.stopPingHeartbeat();
+    this.missedPings = 0;
     this.pingInterval = setInterval(() => {
       if (this.isConnected()) {
+        if (this.missedPings >= 3) {
+          console.warn('Peer ping timeout: partner disconnected');
+          this.handleRemoteDisconnect();
+          return;
+        }
+        this.missedPings++;
         this.sendMessage({ type: 'PING' });
       }
-    }, 5000);
+    }, 2500);
   }
 
   private stopPingHeartbeat(): void {

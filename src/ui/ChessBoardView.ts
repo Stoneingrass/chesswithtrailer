@@ -6,10 +6,12 @@ import { getGameLayoutHtml } from './layout/gameLayout';
 import { initHelpModal } from './help/helpModal';
 
 import { renderOptionsPanel } from './panels/trailerOptionsPanel';
+import { renderClockSlot } from './panels/clockPanel';
 import { renderStatus } from './panels/statusPanel';
 import { renderHistory } from './panels/historyPanel';
 import { renderHistoryNav } from './panels/historyNav';
 import { updateGameActionButtons } from './panels/gameActionsPanel';
+import { renderDisconnectPanel } from './panels/disconnectPanel';
 
 import { renderBoard } from './board/renderBoard';
 import { getSelectableFollowers, getProtectionDepths, pruneDisconnectedFollowers } from './board/selection';
@@ -207,6 +209,14 @@ export class ChessBoardView {
 
     this.game.subscribe((event) => {
       if (event.type === 'move') {
+        if (this.state.clockEnabled) {
+          const movedPlayer = this.game.getTurn() === 'w' ? 'b' : 'w';
+          if (movedPlayer === 'w') {
+            this.state.whiteTimeMs += this.state.clockIncrementSeconds * 1000;
+          } else {
+            this.state.blackTimeMs += this.state.clockIncrementSeconds * 1000;
+          }
+        }
         if (this.state.timelineIndex === this.state.timeline.length - 1) this.state.timeline.push(event.snapshot);
         this.state.timelineIndex = this.state.timeline.length - 1;
         this.state.lastMoveSquares = new Set([event.move.from, event.move.to]);
@@ -217,10 +227,10 @@ export class ChessBoardView {
         savePersistedState(this.game, this.state);
       }
       if (event.type === 'reset') {
-        this.state.drawCooldownStartMoveCount = null;
         this.state.lastMoveSquares.clear();
         this.state.clearSelection();
         if (!this.state.isBrowsingHistory) {
+          this.state.drawCooldownStartMoveCount = null;
           this.state.timeline = [event.snapshot];
           this.state.timelineIndex = 0;
         }
@@ -235,6 +245,8 @@ export class ChessBoardView {
       }
       this.render();
     });
+
+    this.startClockInterval();
 
     // Auto-join room if room query parameter is present in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -254,6 +266,11 @@ export class ChessBoardView {
         if (mode === 'local' && this.state.mode === 'online' && this.net.getStatus() !== 'disconnected') {
           return;
         }
+        if (mode === 'online') {
+          if (this.net.getStatus() === 'disconnected') {
+            this.onlineSessionMgr.openNetModal();
+          }
+        }
         switchMode(mode, this.container, this.headerSubEl, this.state, this.game, this.net, () => this.render());
       });
     });
@@ -262,6 +279,7 @@ export class ChessBoardView {
   private render(): void {
     updateModeTabs(this.container, this.state, this.net);
     this.onlineSessionMgr.renderNet();
+    renderClockSlot(this.container, this.state, this.game);
     renderBoard(this.boardEl, this.state, this.game, {
       onDragStart: (e, sq) => this.dragDropMgr.onDragStart(e, sq),
       onDragOver: (e, sq) => this.dragDropMgr.onDragOver(e, sq),
@@ -277,9 +295,18 @@ export class ChessBoardView {
     renderHistoryNav(this.container, this.state.timeline, this.state.timelineIndex, () =>
       updateGameActionButtons(this.container, this.state, this.game, this.net),
     );
+    renderDisconnectPanel(this.container, this.state, {
+      onCreateNewRoom: () => {
+        this.state.disconnectReason = null;
+        this.net.disconnect();
+        this.onlineSessionMgr.openNetModal();
+        this.render();
+      },
+    });
   }
 
   private bindOptionsPanel(): void {
+    if (this.state.isOptionsLocked) return;
     this.container.querySelectorAll<HTMLInputElement>('input[data-opt]').forEach((input) => {
       input.addEventListener('change', () => {
         const key = input.dataset.opt as keyof TrailerOptions;
@@ -310,6 +337,7 @@ export class ChessBoardView {
     });
 
     this.optionsSlotEl.querySelector('.reset-options-btn')?.addEventListener('click', () => {
+      if (this.state.isOptionsLocked) return;
       this.game.setTrailerOptions({ ...DEFAULT_TRAILER_OPTIONS });
       if (this.state.mode === 'online' && this.net.isConnected()) {
         this.net.sendMessage({ type: 'CHANGE_OPTIONS', options: { ...DEFAULT_TRAILER_OPTIONS } });
@@ -322,7 +350,7 @@ export class ChessBoardView {
   }
 
   private refreshOptionsPanel(): void {
-    this.optionsSlotEl.innerHTML = renderOptionsPanel(this.game.getTrailerOptions());
+    this.optionsSlotEl.innerHTML = renderOptionsPanel(this.game.getTrailerOptions(), this.state.isOptionsLocked);
     this.bindOptionsPanel();
   }
 
@@ -548,7 +576,13 @@ export class ChessBoardView {
     } else {
       savePersistedState(this.game, this.state);
       if (this.state.mode === 'online' && this.net.isConnected()) {
-        this.net.sendMessage({ type: 'MOVE', move: result.move, snapshot: result.snapshot });
+        this.net.sendMessage({
+          type: 'MOVE',
+          move: result.move,
+          snapshot: result.snapshot,
+          whiteTimeMs: this.state.whiteTimeMs,
+          blackTimeMs: this.state.blackTimeMs,
+        });
       }
     }
     this.render();
@@ -594,6 +628,12 @@ export class ChessBoardView {
       this.state.flipped = newColor === 'b';
     }
     this.game.reset();
+    if (this.state.clockEnabled) {
+      this.state.whiteTimeMs = this.state.clockInitialMinutes * 60 * 1000;
+      this.state.blackTimeMs = this.state.clockInitialMinutes * 60 * 1000;
+      this.stopClockInterval();
+      this.startClockInterval();
+    }
     this.state.timeline = [this.game.getSnapshot()];
     this.state.timelineIndex = 0;
     this.state.lastMoveSquares.clear();
@@ -601,6 +641,67 @@ export class ChessBoardView {
     this.state.drawCooldownStartMoveCount = null;
     this.state.resetOffers();
     clearPersistedState();
+    this.render();
+  }
+
+  private startClockInterval(): void {
+    if (this.state.clockInterval !== null) return;
+    this.state.lastClockTickTimestamp = Date.now();
+    this.state.clockInterval = setInterval(() => {
+      this.tickClock();
+    }, 50);
+  }
+
+  private stopClockInterval(): void {
+    if (this.state.clockInterval !== null) {
+      clearInterval(this.state.clockInterval);
+      this.state.clockInterval = null;
+    }
+    this.state.lastClockTickTimestamp = null;
+  }
+
+  private tickClock(): void {
+    if (!this.state.clockEnabled || this.state.mode !== 'online' || !this.net.isConnected()) {
+      return;
+    }
+    if (this.game.getResult().status !== 'ongoing') {
+      return;
+    }
+
+    const now = Date.now();
+    const historyLen = this.game.getSnapshot().moveHistory.length;
+    if (historyLen < 2) {
+      this.state.lastClockTickTimestamp = now;
+      renderClockSlot(this.container, this.state, this.game);
+      return;
+    }
+
+    const last = this.state.lastClockTickTimestamp ?? now;
+    const elapsed = now - last;
+    this.state.lastClockTickTimestamp = now;
+
+    const turn = this.game.getTurn();
+    if (turn === 'w') {
+      this.state.whiteTimeMs = Math.max(0, this.state.whiteTimeMs - elapsed);
+      if (this.state.whiteTimeMs <= 0) {
+        this.handleTimeout('b');
+      }
+    } else {
+      this.state.blackTimeMs = Math.max(0, this.state.blackTimeMs - elapsed);
+      if (this.state.blackTimeMs <= 0) {
+        this.handleTimeout('w');
+      }
+    }
+
+    renderClockSlot(this.container, this.state, this.game);
+  }
+
+  private handleTimeout(winner: 'w' | 'b'): void {
+    if (this.game.getResult().status !== 'ongoing') return;
+    this.game.timeout(winner);
+    if (this.net.isConnected()) {
+      this.net.sendMessage({ type: 'TIMEOUT', winner });
+    }
     this.render();
   }
 
@@ -775,6 +876,7 @@ export class ChessBoardView {
       updateGameActionButtons(this.container, this.state, this.game, this.net);
     } else if (this.state.drawState === 'received') {
       this.state.drawState = 'idle';
+      this.state.drawCooldownStartMoveCount = this.game.getSnapshot().moveHistory.length;
       this.net.sendMessage({ type: 'DRAW_REJECT' });
       updateGameActionButtons(this.container, this.state, this.game, this.net);
     } else if (this.state.rematchState === 'received') {

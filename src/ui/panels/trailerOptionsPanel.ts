@@ -13,7 +13,7 @@ export const TRAILER_OPTION_LABELS: Record<keyof TrailerOptions, string> = {
   kingCannotBeFollower: 'Король не может быть "прицепом"',
 };
 
-export function renderOptionsPanel(options: TrailerOptions | null): string {
+export function renderOptionsPanel(options: TrailerOptions | null, isLocked = false): string {
   if (!options) return '';
 
   const isCaptureSubDisabled = !options.allowFollowerCaptureWithoutLeadingCapture;
@@ -43,6 +43,7 @@ export function renderOptionsPanel(options: TrailerOptions | null): string {
         key === 'disallowKnightTrailerJumping';
 
       const isDisabled =
+        isLocked ||
         (key === 'allowRecursiveGroup' && isMultiSubDisabled) ||
         ((key === 'allowGroupCapture' || key === 'allowFollowerFriendlyCapture') &&
           isCaptureSubDisabled) ||
@@ -63,8 +64,8 @@ export function renderOptionsPanel(options: TrailerOptions | null): string {
 
   return `
     <div class="options-panel">
-      <h2>Опции "Прицепа"</h2>
+      <h2>Опции "Прицепа" ${isLocked ? '<span class="lock-badge" title="Опции заблокированы хостом">[Заблокировано]</span>' : ''}</h2>
       ${items}
-      <button type="button" class="btn btn-secondary btn-sm btn-block reset-options-btn" style="margin-top: 0.6rem;">Сбросить опции</button>
+      <button type="button" class="btn btn-secondary btn-sm btn-block reset-options-btn" style="margin-top: 0.6rem;" ${isLocked ? 'disabled' : ''}>Сбросить опции</button>
     </div>`;
 }

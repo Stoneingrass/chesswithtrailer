@@ -61,9 +61,9 @@ export function updateGameActionButtons(
         rematchBtn.disabled = !isConnected;
         rematchBtn.classList.toggle('is-waiting', state.rematchState === 'offered');
         if (state.rematchState === 'idle') {
-          rematchBtn.innerHTML = '<span class="action-icon">⚔</span><span class="action-label">Реванш</span>';
+          rematchBtn.innerHTML = '<span class="action-label">Реванш</span>';
         } else if (state.rematchState === 'offered') {
-          rematchBtn.innerHTML = '<span class="action-icon spinner">⏳</span><span class="action-label">Ожидание...</span>';
+          rematchBtn.innerHTML = '<span class="action-label">Ожидание...</span>';
         }
       }
     }
@@ -96,9 +96,9 @@ export function updateGameActionButtons(
     takebackBtn.disabled = isDisabled || !hasMoves;
     takebackBtn.classList.toggle('is-waiting', state.takebackState === 'offered');
     if (state.takebackState === 'idle') {
-      takebackBtn.innerHTML = '<span class="action-icon">↺</span><span class="action-label">Ход назад</span>';
+      takebackBtn.innerHTML = '<span class="action-label">Ход назад</span>';
     } else if (state.takebackState === 'offered') {
-      takebackBtn.innerHTML = '<span class="action-icon spinner">⏳</span><span class="action-label">Ожидание...</span>';
+      takebackBtn.innerHTML = '<span class="action-label">Ожидание...</span>';
     }
   }
 
@@ -108,7 +108,6 @@ export function updateGameActionButtons(
     drawBtn.classList.toggle('is-waiting', state.drawState === 'offered');
 
     let labelText = 'Ничья';
-    let iconClass = '';
     if (drawCooldownLeft > 0) {
       labelText = `Ничья (${drawCooldownLeft})`;
       const moveWord = drawCooldownLeft === 1 ? 'ход' : drawCooldownLeft < 5 ? 'хода' : 'ходов';
@@ -117,15 +116,14 @@ export function updateGameActionButtons(
       drawBtn.title = 'Предложение ничьей';
       if (state.drawState === 'offered') {
         labelText = 'Ничья...';
-        iconClass = 'spinner';
       }
     }
 
-    drawBtn.innerHTML = `<span class="action-icon ${iconClass}">🤝</span><span class="action-label">${labelText}</span>`;
+    drawBtn.innerHTML = `<span class="action-label">${labelText}</span>`;
   }
 
   if (resignBtn) {
     resignBtn.disabled = isDisabled;
-    resignBtn.innerHTML = '<span class="action-icon">🏳</span><span class="action-label">Сдаться</span>';
+    resignBtn.innerHTML = '<span class="action-label">Сдаться</span>';
   }
 }
