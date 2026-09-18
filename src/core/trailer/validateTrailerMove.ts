@@ -1,8 +1,90 @@
-import { addDelta, getDelta, getPathSquares } from '../boardUtils';
+import { addDelta, getDelta, getPathSquares, parseSquare, toSquare } from '../boardUtils';
 import type { MoveContext, Piece, PieceType, Square } from '../types';
 import type { PlannedFollower, TrailerOptions } from './types';
 import { getCastlingDetails } from './castling';
 import { pieceAttacksSquare } from './protectors';
+
+export function getKnightCandidatePaths(from: Square, df: number, dr: number): Array<Array<Square | null>> {
+  const { file, rank } = parseSquare(from);
+  const absF = Math.abs(df);
+  const absR = Math.abs(dr);
+  const signF = df === 0 ? 0 : df / absF;
+  const signR = dr === 0 ? 0 : dr / absR;
+
+  if (absR === 2 && absF === 1) {
+    return [
+      [toSquare(file, rank + signR), toSquare(file, rank + 2 * signR)],
+      [toSquare(file, rank + signR), toSquare(file + signF, rank + signR)],
+      [toSquare(file + signF, rank), toSquare(file + signF, rank + signR)],
+    ];
+  } else if (absF === 2 && absR === 1) {
+    return [
+      [toSquare(file + signF, rank), toSquare(file + 2 * signF, rank)],
+      [toSquare(file + signF, rank), toSquare(file + signF, rank + signR)],
+      [toSquare(file, rank + signR), toSquare(file + signF, rank + signR)],
+    ];
+  }
+
+  return [];
+}
+
+export function isKnightPathClearForPiece(
+  intermSquares: Array<Square | null>,
+  movingFrom: Set<Square>,
+  getPiece: (sq: Square) => Piece | null,
+): boolean {
+  for (const sq of intermSquares) {
+    if (sq === null) return false;
+    const piece = getPiece(sq);
+    if (piece !== null && !movingFrom.has(sq)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function hasAnyClearKnightPathForPiece(
+  fromSq: Square,
+  df: number,
+  dr: number,
+  movingFrom: Set<Square>,
+  getPiece: (sq: Square) => Piece | null,
+): boolean {
+  const candidatePaths = getKnightCandidatePaths(fromSq, df, dr);
+  for (const pathSquares of candidatePaths) {
+    if (pathSquares && isKnightPathClearForPiece(pathSquares, movingFrom, getPiece)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function validateKnightTrailerJumping(
+  movingFrom: Set<Square>,
+  df: number,
+  dr: number,
+  getPiece: (sq: Square) => Piece | null,
+): { ok: true } | { ok: false; reason: string } {
+  const movingArray = [...movingFrom];
+  if (movingArray.length === 0) return { ok: true };
+
+  for (let pathIdx = 0; pathIdx < 3; pathIdx++) {
+    let pathClearForEntireGroup = true;
+    for (const fromSq of movingArray) {
+      const candidatePaths = getKnightCandidatePaths(fromSq, df, dr);
+      const pathSquares = candidatePaths[pathIdx];
+      if (!pathSquares || !isKnightPathClearForPiece(pathSquares, movingFrom, getPiece)) {
+        pathClearForEntireGroup = false;
+        break;
+      }
+    }
+    if (pathClearForEntireGroup) {
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, reason: 'Конь с "прицепом" не может перепрыгивать фигуры' };
+}
 
 export function resolveFollowerGroup(
   leading: Square,
@@ -125,6 +207,19 @@ export function validateTrailerMove(
       ? [castleDetails.kingFrom, castleDetails.rookFrom, ...followers]
       : [leadingFrom, ...followers],
   );
+
+  if (options.disallowKnightFollowerJumping && leadingPiece.type === 'n' && followers.length > 0) {
+    for (const followerFrom of followers) {
+      if (!hasAnyClearKnightPathForPiece(followerFrom, defaultDf, defaultDr, movingFrom, getPiece)) {
+        return { ok: false, reason: 'Ведомая фигура за конём не может перепрыгивать через фигуры' };
+      }
+    }
+
+    if (options.disallowKnightTrailerJumping) {
+      const knightJumpOk = validateKnightTrailerJumping(movingFrom, defaultDf, defaultDr, getPiece);
+      if (!knightJumpOk.ok) return knightJumpOk;
+    }
+  }
 
   for (const from of followers) {
     const piece = getPiece(from)!;

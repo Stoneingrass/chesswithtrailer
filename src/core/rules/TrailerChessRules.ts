@@ -69,6 +69,13 @@ export class TrailerChessRules extends StandardChessRules implements TrailerCapa
       this.options.allowGroupCapture = false;
       this.options.allowFollowerFriendlyCapture = false;
     }
+    if (!this.options.disallowKnightFollowerJumping) {
+      this.options.disallowKnightTrailerJumping = false;
+    }
+    if (this.options.allowPassThrough) {
+      this.options.disallowKnightFollowerJumping = false;
+      this.options.disallowKnightTrailerJumping = false;
+    }
     saveTrailerOptions(this.options);
   }
 

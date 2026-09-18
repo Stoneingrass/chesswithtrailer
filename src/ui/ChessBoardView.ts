@@ -291,6 +291,13 @@ export class ChessBoardView {
           change.allowGroupCapture = false;
           change.allowFollowerFriendlyCapture = false;
         }
+        if (key === 'allowPassThrough' && input.checked) {
+          change.disallowKnightFollowerJumping = false;
+          change.disallowKnightTrailerJumping = false;
+        }
+        if (key === 'disallowKnightFollowerJumping' && !input.checked) {
+          change.disallowKnightTrailerJumping = false;
+        }
         this.game.setTrailerOptions(change);
         if (this.state.mode === 'online' && this.net.isConnected()) {
           this.net.sendMessage({ type: 'CHANGE_OPTIONS', options: change });

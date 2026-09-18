@@ -6,8 +6,10 @@ export const TRAILER_OPTION_LABELS: Record<keyof TrailerOptions, string> = {
   allowFollowerFriendlyCapture: 'Взятие своих фигур "прицепом"',
   allowMultiFollower: '"Прицеп" из 2+ фигур',
   allowRecursiveGroup: 'Рекурсивное формирование "прицепа"',
-  allowPassThrough: 'Перепрыгивание "прицепом" других фигур',
   followerOffBoardRemoved: '"Прицеп" может вылететь за доску',
+  allowPassThrough: 'Перепрыгивание "прицепом" других фигур',
+  disallowKnightFollowerJumping: 'Запрет на перепрыгивание "прицепом" за конём',
+  disallowKnightTrailerJumping: 'Запрет на перепрыгивание для коня с "прицепом"',
   kingCannotBeFollower: 'Король не может быть "прицепом"',
 };
 
@@ -16,6 +18,8 @@ export function renderOptionsPanel(options: TrailerOptions | null): string {
 
   const isCaptureSubDisabled = !options.allowFollowerCaptureWithoutLeadingCapture;
   const isMultiSubDisabled = !options.allowMultiFollower;
+  const isPassThroughActive = options.allowPassThrough;
+  const isKnightSubDisabled = !options.disallowKnightFollowerJumping || isPassThroughActive;
 
   const fields: Array<keyof TrailerOptions> = [
     'allowFollowerCaptureWithoutLeadingCapture',
@@ -24,6 +28,8 @@ export function renderOptionsPanel(options: TrailerOptions | null): string {
     'allowMultiFollower',
     'allowRecursiveGroup',
     'allowPassThrough',
+    'disallowKnightFollowerJumping',
+    'disallowKnightTrailerJumping',
     'followerOffBoardRemoved',
     'kingCannotBeFollower',
   ];
@@ -33,12 +39,15 @@ export function renderOptionsPanel(options: TrailerOptions | null): string {
       const isIndented =
         key === 'allowRecursiveGroup' ||
         key === 'allowGroupCapture' ||
-        key === 'allowFollowerFriendlyCapture';
+        key === 'allowFollowerFriendlyCapture' ||
+        key === 'disallowKnightTrailerJumping';
 
       const isDisabled =
         (key === 'allowRecursiveGroup' && isMultiSubDisabled) ||
         ((key === 'allowGroupCapture' || key === 'allowFollowerFriendlyCapture') &&
-          isCaptureSubDisabled);
+          isCaptureSubDisabled) ||
+        (key === 'disallowKnightFollowerJumping' && isPassThroughActive) ||
+        (key === 'disallowKnightTrailerJumping' && isKnightSubDisabled);
 
       const checked = options[key] ? 'checked' : '';
       const disabledAttr = isDisabled ? 'disabled' : '';

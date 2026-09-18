@@ -19,6 +19,10 @@ export interface TrailerOptions {
   kingCannotBeFollower: boolean;
   /** 5. Ведомая за границей доски исчезает вместо отмены хода */
   followerOffBoardRemoved: boolean;
+  /** Основная опция: Запрет на перепрыгивание "прицепом" за конём */
+  disallowKnightFollowerJumping: boolean;
+  /** Дополнительная опция: Конь с прицепом также не может перепрыгивать */
+  disallowKnightTrailerJumping: boolean;
 }
 
 export const DEFAULT_TRAILER_OPTIONS: TrailerOptions = {
@@ -30,6 +34,8 @@ export const DEFAULT_TRAILER_OPTIONS: TrailerOptions = {
   allowFollowerFriendlyCapture: false,
   kingCannotBeFollower: false,
   followerOffBoardRemoved: false,
+  disallowKnightFollowerJumping: false,
+  disallowKnightTrailerJumping: false,
 };
 
 export const TRAILER_OPTIONS_STORAGE_KEY = 'omnichess-trailer-options';
