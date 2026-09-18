@@ -94,7 +94,7 @@ export function formatMoveNotation(san: string, followers: PlannedFollower[]): s
       return `${pieceName(f.piece.type)}${f.from}${sep}${target}${promoStr}`;
     })
     .join(', ');
-  return `${san} + ${trailer}`;
+  return `${san} & ${trailer}`;
 }
 
 export function finalizeMoveState(
