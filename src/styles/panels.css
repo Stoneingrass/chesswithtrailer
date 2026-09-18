@@ -400,3 +400,11 @@
   grid-template-columns: 1fr 1fr;
   gap: 0.35rem;
 }
+
+.button-group.is-online {
+  grid-template-columns: 1fr;
+}
+
+.button-group.is-online [data-action="reset"] {
+  display: none !important;
+}

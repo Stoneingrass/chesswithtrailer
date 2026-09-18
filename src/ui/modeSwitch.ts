@@ -24,6 +24,11 @@ export function updateModeTabs(
   container.querySelectorAll<HTMLButtonElement>('.mode-tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.mode === state.mode);
   });
+
+  const buttonGroup = container.querySelector<HTMLElement>('.button-group');
+  if (buttonGroup) {
+    buttonGroup.classList.toggle('is-online', state.mode === 'online');
+  }
 }
 
 export function switchMode(

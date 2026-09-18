@@ -62,7 +62,7 @@ export class NetworkManager {
     const code = generateRoomCode();
     this.roomCode = code;
     this.role = 'host';
-    this.myColor = 'w';
+    this.myColor = Math.random() < 0.5 ? 'w' : 'b';
     this.updateStatus('waiting_for_peer', 'Ожидание второго игрока...');
 
     return new Promise((resolve, reject) => {
@@ -160,14 +160,16 @@ export class NetworkManager {
     this.conn.on('open', () => {
       this.updateStatus('connected');
       const { snapshot, options } = getInitialState();
+      const hostColor = this.myColor ?? 'w';
+      const guestColor: Color = hostColor === 'w' ? 'b' : 'w';
       this.sendMessage({
         type: 'INIT_GAME',
         snapshot,
         options,
-        hostColor: 'w',
-        guestColor: 'b',
+        hostColor,
+        guestColor,
       });
-      this.listeners.partnerConnected?.('w');
+      this.listeners.partnerConnected?.(hostColor);
     });
 
     this.conn.on('data', (data) => {

@@ -113,6 +113,7 @@ export class ChessBoardView {
     this.onlineSessionMgr.setupNetworkEvents();
 
     this.container.querySelector('[data-action="reset"]')!.addEventListener('click', () => {
+      if (this.state.mode === 'online') return;
       this.cancelPendingActions();
       this.state.drawCooldownStartMoveCount = null;
       this.state.resetOffers();
@@ -125,9 +126,6 @@ export class ChessBoardView {
       clearPersistedState();
       this.refreshOptionsPanel();
       this.render();
-      if (this.state.mode === 'online' && this.net.isConnected()) {
-        this.net.sendMessage({ type: 'RESET_GAME', snapshot: this.game.getSnapshot() });
-      }
     });
 
     this.container.querySelector('[data-action="flip"]')!.addEventListener('click', () => {
