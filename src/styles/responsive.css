@@ -49,28 +49,46 @@
     display: contents;
   }
 
-  .status-panel {
+  .disconnect-panel-slot {
     order: 1;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .status-panel {
+    order: 2;
     width: 100%;
     max-width: 480px;
     padding: 0.65rem 0.85rem;
     min-height: 86px;
   }
 
-  .board-panel {
-    order: 2;
-    width: 100%;
-    max-width: 480px;
-  }
-
-  .controls {
+  .clock-top-slot {
     order: 3;
     width: 100%;
     max-width: 480px;
   }
 
-  .history-panel {
+  .board-panel {
     order: 4;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .clock-bottom-slot {
+    order: 5;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .controls {
+    order: 6;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .history-panel {
+    order: 7;
     width: 100%;
     max-width: 480px;
     max-height: 160px;
@@ -78,7 +96,7 @@
   }
 
   .panel-left {
-    order: 5;
+    order: 8;
     width: 100%;
     max-width: 480px;
     height: auto;
